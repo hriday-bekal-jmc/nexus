@@ -1,5 +1,5 @@
 generator client {
-  provider = "postgresql"
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -82,6 +82,7 @@ model Task {
   description String?
   status      String   @default("TODO") // TODO, IN_PROGRESS, BLOCKED, DONE
   priority    String   @default("MEDIUM") // HIGH, MEDIUM, LOW
+  startDate   DateTime?
   dueDate     DateTime?
   projectId   String
   assigneeId  String?

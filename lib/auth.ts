@@ -10,8 +10,6 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt", 
   },
   secret: process.env.NEXTAUTH_SECRET,
-  
-  // ⚠️ pages: { signIn: ... } のブロックは完全に削除しました
 
   providers: [
     CredentialsProvider({

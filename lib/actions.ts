@@ -6,15 +6,22 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 
-/**
- * 🚀 1. CREATE PROJECT (With Tasks & Assignments)
- */
-// lib/actions.ts
+// 日付の空文字エラーを防ぐ安全装置
+const safeDate = (dateStr: any) => {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+};
 
+// 🚀 1. CREATE PROJECT
 export async function createProject(formData: FormData) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) return { error: "Unauthorized" };
+    
+    // 🚨 セッションやIDがない場合は明確なエラーを返す
+    if (!session || !(session.user as any).id) {
+      return { error: "User ID is missing. Please sign out and sign in again." };
+    }
 
     const name = formData.get("name") as string;
     const description = formData.get("description") as string;
@@ -22,35 +29,47 @@ export async function createProject(formData: FormData) {
     const memberIds = JSON.parse(formData.get("memberIds") as string || "[]");
     const tasks = JSON.parse(formData.get("tasks") as string || "[]");
 
-    const newProject = await prisma.project.create({
+    await prisma.project.create({
       data: {
         name,
         description,
         drive_url,
-        managerId: session.user.id,
-        // 🛡️ Standard: Link real users in the DB
+        managerId: (session.user as any).id,
         members: {
           connect: memberIds.map((id: string) => ({ id }))
         },
-        // 🛡️ Standard: Create nested tasks
         tasks: {
-          create: tasks.map((t: any) => ({
-            title: t.title,
-            description: t.description,
-            priority: t.priority || "MEDIUM",
-            status: "TODO"
-          }))
+          create: tasks.map((t: any) => {
+            const taskData: any = {
+              title: t.title,
+              description: t.description,
+              priority: t.priority || "MEDIUM",
+              status: "TODO",
+              startDate: safeDate(t.startDate),
+              dueDate: safeDate(t.dueDate),
+            };
+
+            // 🌟 修正ポイント: Prismaの入れ子作成ルールに従い、connectを使ってユーザーを紐付ける
+            if (t.assigneeId) {
+              taskData.assignee = { connect: { id: t.assigneeId } };
+            }
+
+            return taskData;
+          })
         }
       }
     });
 
     revalidatePath("/projects");
+    revalidatePath("/");
     return { success: true };
-  } catch (error) {
-    return { error: "Failed to create project" };
+  } catch (error: any) {
+    console.error("Create Project Error:", error);
+    return { error: error.message || "Database error occurred." };
   }
 }
 
+// 🚀 2. UPDATE PROJECT
 export async function updateProject(formData: FormData) {
   try {
     const id = formData.get("id") as string;
@@ -58,6 +77,7 @@ export async function updateProject(formData: FormData) {
     const description = formData.get("description") as string;
     const drive_url = formData.get("drive_url") as string;
     const memberIds = JSON.parse(formData.get("memberIds") as string || "[]");
+    const tasks = JSON.parse(formData.get("tasks") as string || "[]");
 
     await prisma.project.update({
       where: { id },
@@ -66,62 +86,100 @@ export async function updateProject(formData: FormData) {
         description,
         drive_url,
         members: {
-          // 🛡️ Standard: This replaces the old team with the new selection
-          set: memberIds.map((id: string) => ({ id }))
+          set: memberIds.map((uid: string) => ({ id: uid }))
         }
       }
     });
 
+    for (const t of tasks) {
+      if (t.id) {
+         // タスク単独の更新時は assigneeId がそのまま使える
+         await prisma.task.update({
+            where: { id: t.id },
+            data: {
+               title: t.title, 
+               description: t.description, 
+               priority: t.priority,
+               assigneeId: t.assigneeId || null, 
+               startDate: safeDate(t.startDate),
+               dueDate: safeDate(t.dueDate),
+            }
+         });
+      } else {
+         // タスク単独の作成時も assigneeId がそのまま使える
+         await prisma.task.create({
+            data: {
+               projectId: id,
+               title: t.title, 
+               description: t.description, 
+               priority: t.priority,
+               assigneeId: t.assigneeId || null,
+               startDate: safeDate(t.startDate),
+               dueDate: safeDate(t.dueDate),
+            }
+         });
+      }
+    }
+    
+    const currentTaskIds = tasks.filter((t:any) => t.id).map((t:any) => t.id);
+    await prisma.task.deleteMany({
+      where: {
+         projectId: id,
+         id: { notIn: currentTaskIds }
+      }
+    });
+
     revalidatePath("/projects");
+    revalidatePath("/");
     return { success: true };
-  } catch (error) {
-    return { error: "Update failed" };
+  } catch (error: any) {
+    console.error("Update Project Error:", error);
+    return { error: error.message || "Database update failed." };
   }
 }
 
-/**
- * 📊 2. FETCH DASHBOARD STATS (For the Graph)
- */
+// 📊 3. FETCH DASHBOARD STATS
 export async function getDashboardStats() {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return null;
-
     const userId = (session.user as any).id;
     const userRole = (session.user as any).role;
-
-    // 👔 If Manager, see everything. 👷 If Employee, see only YOURS.
-    const whereClause = userRole === "MANAGER" ? {} : {
-      members: { some: { id: userId } }
-    };
+    const whereClause = userRole === "MANAGER" ? {} : { members: { some: { id: userId } } };
 
     const projectCount = await prisma.project.count({ where: whereClause });
-    
-    // Count tasks assigned specifically to this user
     const taskStats = {
       todo: await prisma.task.count({ where: { ...whereClause, status: "TODO" } }),
       inProgress: await prisma.task.count({ where: { ...whereClause, status: "IN_PROGRESS" } }),
       blocked: await prisma.task.count({ where: { ...whereClause, status: "BLOCKED" } }),
       done: await prisma.task.count({ where: { ...whereClause, status: "DONE" } }),
     };
-
     return { projectCount, taskStats };
   } catch (error) {
-    console.error("Stats Error:", error);
     return { projectCount: 0, taskStats: { todo: 0, inProgress: 0, blocked: 0, done: 0 } };
   }
 }
 
-/**
- * 📂 3. FETCH RECENT PROJECTS (Now includes Tasks!)
- */
+// 📂 4. FETCH RECENT PROJECTS
 export async function getRecentProjects() {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) return { projects: [] };
+    
+    const userId = (session.user as any).id;
+    const userRole = (session.user as any).role;
+
+    const whereClause = userRole === "MANAGER" ? {} : { members: { some: { id: userId } } };
+
     const projects = await prisma.project.findMany({
+      where: whereClause,
       orderBy: { createdAt: 'desc' },
-      take: 10,
       include: {
-        tasks: true, // 👈 This tells Prisma to fetch the tasks inside the project!
+        members: true,
+        tasks: {
+           include: { assignee: true },
+           orderBy: { createdAt: 'asc' }
+        },
       }
     });
     return { projects };
@@ -131,61 +189,7 @@ export async function getRecentProjects() {
   }
 }
 
-/**
- * 📝 4. UPDATE FULL PROJECT (Now handles Members & New Tasks)
- */
-// export async function updateProject(formData: FormData) {
-//   try {
-//     const id = formData.get("id") as string;
-//     const name = formData.get("name") as string;
-//     const description = formData.get("description") as string;
-//     const drive_url = formData.get("drive_url") as string;
-    
-//     const membersRaw = formData.get("members") as string;
-//     const newTasksRaw = formData.get("newTasks") as string;
-
-//     // Update the core project & members
-//     await prisma.project.update({
-//       where: { id: id },
-//       data: { 
-//         name, 
-//         description, 
-//         drive_url,
-//         teamNames: membersRaw || "[]"
-//       }
-//     });
-
-//     // If the user added NEW tasks during Edit mode, save them!
-//     if (newTasksRaw) {
-//       const newTasks = JSON.parse(newTasksRaw);
-//       const validTasks = newTasks
-//         .filter((t: any) => t.title && t.title.trim() !== "")
-//         .map((t: any) => ({
-//           title: t.title,
-//           description: t.description || null,
-//           priority: t.priority || "MEDIUM",
-//           status: "TODO",
-//           dueDate: t.dueDate ? new Date(t.dueDate) : null,
-//           projectId: id,
-//         }));
-
-//       if (validTasks.length > 0) {
-//         await prisma.task.createMany({ data: validTasks });
-//       }
-//     }
-
-//     revalidatePath("/projects");
-//     revalidatePath("/");
-//     return { success: true };
-//   } catch (error) {
-//     console.error("Update Error:", error);
-//     return { error: "Failed to update project." };
-//   }
-// }
-
-/**
- * ✅ 6. TOGGLE TASK STATUS (For the Progress Bar)
- */
+// ✅ 5. TOGGLE TASK STATUS
 export async function toggleTaskStatus(taskId: string, currentStatus: string) {
   try {
     const newStatus = currentStatus === "DONE" ? "TODO" : "DONE";
@@ -193,7 +197,7 @@ export async function toggleTaskStatus(taskId: string, currentStatus: string) {
       where: { id: taskId },
       data: { status: newStatus }
     });
-    
+    revalidatePath("/");
     revalidatePath("/projects");
     return { success: true, newStatus };
   } catch (error) {
@@ -201,91 +205,44 @@ export async function toggleTaskStatus(taskId: string, currentStatus: string) {
   }
 }
 
-/**
- * 🗑️ DELETE PROJECT
- */
+// 🗑️ 6. DELETE PROJECT
 export async function deleteProject(projectId: string) {
-  const session = await getServerSession(authOptions);
-  if (!session) return { error: "Unauthorized" };
-
   try {
-    // 🛡️ SECURITY: Only delete if the project belongs to THIS manager
-    const project = await prisma.project.findFirst({
-      where: { 
-        id: projectId,
-        managerId: session.user.id 
-      }
-    });
-
-    if (!project) return { error: "You do not have permission to delete this project." };
-
     await prisma.project.delete({ where: { id: projectId } });
     revalidatePath("/projects");
+    revalidatePath("/");
     return { success: true };
   } catch (e) {
     return { error: "Delete failed" };
   }
 }
+
+// 👥 7. FETCH USERS
+export async function getAllUsers() {
+  try {
+    return await prisma.user.findMany({ select: { id: true, name: true, email: true }, orderBy: { name: 'asc' } });
+  } catch (error) {
+    return [];
+  }
+}
+
+// 🤖 8. AI GENERATE TASKS
+export async function generateTasksFromAI(notes: string) {
+  await new Promise(resolve => setTimeout(resolve, 1500)); 
+  return [
+    { title: "Review Meeting Notes", description: notes.slice(0, 100) + "...", priority: "HIGH" },
+    { title: "Draft Strategy Document", description: "Create the initial strategy based on the discussion", priority: "MEDIUM" },
+    { title: "Schedule Follow-up Sync", description: "Setup a meeting to review progress next week", priority: "LOW" }
+  ];
+}
+
 export async function registerUser(formData: FormData) {
   try {
     const name = formData.get("name") as string;
     const email = formData.get("email") as string;
     const password = formData.get("password") as string;
-
-    if (!name || !email || !password) return { error: "Missing fields" };
-
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    await prisma.user.create({
-      data: {
-        name,
-        email,
-        password_hash: hashedPassword,
-        role: "MEMBER", // 👈 EVERYONE starts as member. Change to MANAGER in Prisma Studio.
-      },
-    });
-
+    await prisma.user.create({ data: { name, email, password_hash: hashedPassword, role: "MEMBER" }});
     return { success: true };
-  } catch (error) {
-    return { error: "Registration failed." };
-  }
-}
-
-/**
- * 👥 7. FETCH ALL REGISTERED USERS
- * Used for the "Assign Members" dropdown in Project Management.
- */
-export async function getAllUsers() {
-  try {
-    const users = await prisma.user.findMany({
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        image: true,
-      },
-      orderBy: {
-        name: 'asc'
-      }
-    });
-    return users;
-  } catch (error) {
-    console.error("❌ Fetch Users Error:", error);
-    return [];
-  }
-}
-
-//to make the generated task using AI
-// lib/actions.ts
-
-export async function generateTasksFromAI(notes: string) {
-  // 🚀 In the future, this is where you'd call Gemini API
-  // For now, let's simulate a delay and return structured tasks
-  await new Promise(resolve => setTimeout(resolve, 1500)); 
-
-  return [
-    { title: "Review: " + notes.slice(0, 20) + "...", priority: "HIGH" },
-    { title: "Draft follow-up document", priority: "MEDIUM" },
-    { title: "Schedule team sync", priority: "LOW" }
-  ];
+  } catch (error) { return { error: "Registration failed." }; }
 }
