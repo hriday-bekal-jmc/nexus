@@ -308,6 +308,7 @@
 //   );
 // }
 
+export const dynamic = "force-dynamic";
 
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";

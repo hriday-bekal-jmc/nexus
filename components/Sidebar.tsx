@@ -49,7 +49,7 @@ export default function Sidebar() {
       {/* 🔴 RESTORED LOGOUT BUTTON */}
       <div className="pt-4 mt-auto border-t border-white/60">
         <button 
-          onClick={() => signOut({ callbackUrl: '/api/auth/signin' })}
+          onClick={() => signOut({ callbackUrl: '/' })}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm text-red-400 hover:bg-red-50 hover:text-red-500 transition-all"
         >
           <LogOut size={20} /> ログアウト

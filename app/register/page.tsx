@@ -21,7 +21,7 @@ export default function RegisterPage() {
 
     if (result.success) {
       // Redirect to the login page (or api/auth/signin) after successful registration
-      router.push("/api/auth/signin"); 
+      router.push("/"); 
     } else {
       setError(result.error || "Registration failed");
       setLoading(false);

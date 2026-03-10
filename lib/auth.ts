@@ -5,12 +5,14 @@ import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma) as any,
+  adapter: PrismaAdapter(prisma),
   session: { 
-    strategy: "jwt", // JWT is standard for modern Next.js apps
+    strategy: "jwt", 
   },
   secret: process.env.NEXTAUTH_SECRET,
-  useSecureCookies: true, // Automatically pulls from .env
+  
+  // ⚠️ pages: { signIn: ... } のブロックは完全に削除しました
+
   providers: [
     CredentialsProvider({
       name: "Credentials",
@@ -30,7 +32,6 @@ export const authOptions: NextAuthOptions = {
         const isValid = await bcrypt.compare(credentials.password, user.password_hash);
         if (!isValid) return null;
 
-        // Standard: Return only what you need in the token
         return {
           id: user.id,
           email: user.email,
@@ -41,96 +42,24 @@ export const authOptions: NextAuthOptions = {
     })
   ],
   callbacks: {
-    async jwt({ token, user }: any) {
+    async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
         token.role = user.role;
       }
       return token;
     },
-    async session({ session, token }: any) {
+    async session({ session, token }) {
       if (session.user) {
-        (session.user as any).id = token.id;
-        (session.user as any).role = token.role;
+        session.user.id = token.id as string;
+        session.user.role = token.role as string;
       }
       return session;
-    }
-  },
-  cookies: {
-    sessionToken: {
-      name: `__Secure-next-auth.session-token`,
-      options: {
-        httpOnly: true,
-        sameSite: 'lax', // Standard for cross-subdomain proxying
-        path: '/',
-        secure: true
-      }
+    },
+    async redirect({ url, baseUrl }) {
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      else if (new URL(url).origin === baseUrl) return url;
+      return baseUrl;
     }
   }
 };
-
-// export const authOptions: NextAuthOptions = {
-//   adapter: PrismaAdapter(prisma) as any,
-//   session: { 
-//     strategy: "jwt",
-//     maxAge: 30 * 24 * 60 * 60, // 30 days
-//   },
-//   // 🛡️ SECURITY: Force use of the secret from .env or a hardcoded fallback for dev
-//   secret: process.env.NEXTAUTH_SECRET || "nexus-dev-secret-key-999",
-//   providers: [
-//     CredentialsProvider({
-//       name: "Nexus Account",
-//       credentials: {
-//         email: { label: "Email", type: "email" },
-//         password: { label: "Password", type: "password" }
-//       },
-//       async authorize(credentials) {
-//         if (!credentials?.email || !credentials?.password) return null;
-        
-//         const user = await prisma.user.findUnique({
-//           where: { email: credentials.email }
-//         });
-
-//         if (!user || !user.password_hash) return null;
-
-//         const isValid = await bcrypt.compare(credentials.password, user.password_hash);
-//         if (!isValid) return null;
-
-//         return {
-//           id: user.id,
-//           email: user.email,
-//           name: user.name,
-//           role: user.role, // This will be "MEMBER" unless changed in Prisma Studio
-//         };
-//       }
-//     })
-//   ],
-//   callbacks: {
-//     async jwt({ token, user }: any) {
-//       if (user) {
-//         token.id = user.id;
-//         token.role = user.role;
-//       }
-//       return token;
-//     },
-//     async session({ session, token }: any) {
-//       if (session.user) {
-//         (session.user as any).id = token.id;
-//         (session.user as any).role = token.role;
-//       }
-//       return session;
-//     }
-//   },
-//   // 🚀 Standard secure cookie settings for Cloud IDEs
-//   cookies: {
-//     sessionToken: {
-//       name: `next-auth.session-token`,
-//       options: {
-//         httpOnly: true,
-//         sameSite: 'lax',
-//         path: '/',
-//         secure: true // Required for .github.dev URLs (HTTPS)
-//       }
-//     }
-//   }
-// };
