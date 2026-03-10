@@ -84,6 +84,7 @@ model Task {
   priority    String   @default("MEDIUM") // HIGH, MEDIUM, LOW
   startDate   DateTime?
   dueDate     DateTime?
+  timeElapsed  Int       @default(0)
   projectId   String
   assigneeId  String?
   createdAt   DateTime @default(now())

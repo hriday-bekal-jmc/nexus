@@ -138,6 +138,24 @@ export async function updateProject(formData: FormData) {
   }
 }
 
+// 🚀 2.5 UPDATE TASK TIME ()
+// 🚀 タスクの経過時間を保存する
+export async function updateTaskTime(taskId: string, additionalSeconds: number) {
+  try {
+    await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        timeElapsed: {
+          increment: additionalSeconds // 既存の時間に加算
+        }
+      }
+    });
+    return { success: true };
+  } catch (error) {
+    return { error: "Failed to save time" };
+  }
+}
+
 // 📊 3. FETCH DASHBOARD STATS
 export async function getDashboardStats() {
   try {
