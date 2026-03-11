@@ -11,7 +11,7 @@ import {
 import { 
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from "recharts";
-import { toggleTaskStatus, updateTaskTime, toggleTaskReaction, addTaskComment } from "@/lib/actions";
+import { toggleTaskStatus, updateTaskTime, toggleTaskReaction, addTaskComment, generateDashboardInsights } from "@/lib/actions";
 
 export default function DashboardClient({ userName, userId, userRole, stats, projects }: any) {
   const router = useRouter();
@@ -76,18 +76,33 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
     });
   }, [projects]);
 
-  // Global Activity Feed (Shared) - より多く取得してスクロールさせる
+  // Global Activity Feed (Shared)
   const activityFeed = useMemo(() => {
     return [...allTasks].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 15);
   }, [allTasks]);
 
-  // Mock AI Reports for Manager
-  const mockAiReports = [
-    { id: 1, user: "Yashwan", summary: "データベーススキーマの設定を完了しました。デプロイキーの承認待ちです。", time: "2時間前", status: "ブロック" },
-    { id: 2, user: "Hriday", summary: "ダッシュボードのGlassmorphism UIを設計しました。レビュー可能です。", time: "4時間前", status: "順調" },
-    { id: 3, user: "Alice", summary: "タスク管理用のAPIルートを更新しました。問題は確認されていません。", time: "5時間前", status: "優秀" },
-    { id: 4, user: "Bob", summary: "認証フローにおける不具合を調査中です。", time: "1日前", status: "調査中" },
-  ];
+  // ==========================================
+  // 🤖 AI DASHBOARD INSIGHTS LOGIC
+  // ==========================================
+  const [aiReports, setAiReports] = useState<any[]>([]);
+  const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
+
+  const handleGenerateInsights = async () => {
+    setIsGeneratingInsights(true);
+    // 直近15件のタスクをAIに送信して分析させる
+    const recentTasksForAI = allTasks.slice(0, 15).map((t: any) => ({
+      title: t.title,
+      status: t.status,
+      assignee: t.assignee?.name || "未割当"
+    }));
+
+    const generatedReports = await generateDashboardInsights(JSON.stringify(recentTasksForAI));
+    
+    if (generatedReports && generatedReports.length > 0) {
+      setAiReports(generatedReports);
+    }
+    setIsGeneratingInsights(false);
+  };
 
   // ==========================================
   // ⏱️ PERSISTENT TIMER LOGIC
@@ -171,7 +186,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
           </div>
         </div>
         
-        {/* Urgent Action Center (Idea D) - For Members */}
+        {/* Urgent Action Center (Member) */}
         {!isManager && (
           <div className="hidden md:flex gap-3">
              <div className="px-4 py-2 bg-rose-50 border border-rose-100 rounded-xl flex flex-col items-center justify-center shadow-sm">
@@ -293,25 +308,39 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                  </div>
               </div>
 
+              {/* 🤖 NEW DYNAMIC AI REPORTS BLOCK */}
               <div className="bg-slate-900 rounded-[32px] p-6 text-white shadow-2xl relative overflow-hidden border-b-4 border-purple-500 flex flex-col max-h-[350px]">
                  <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={60} /></div>
                  <div className="relative z-10 flex justify-between items-center mb-4">
                     <h4 className="text-[9px] font-black uppercase tracking-[0.3em] text-purple-400 flex items-center gap-2">
                       <Sparkles size={12}/> AIによる業務要約
                     </h4>
+                    <button 
+                      onClick={handleGenerateInsights} 
+                      disabled={isGeneratingInsights}
+                      className="text-[10px] font-black bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-full hover:bg-purple-500/40 transition-colors flex items-center gap-1 disabled:opacity-50"
+                    >
+                      {isGeneratingInsights ? "分析中..." : "インサイトを生成"}
+                    </button>
                  </div>
                  <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar flex-1 z-10">
-                    {mockAiReports.map((report) => (
-                      <Link href="/nippo" key={report.id} className="block p-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-colors group cursor-pointer">
-                        <div className="flex justify-between items-center mb-1">
-                           <span className="text-[11px] font-black text-white">{report.user}</span>
-                           <span className={`text-[7px] font-black uppercase px-2 py-0.5 rounded-full ${report.status === 'ブロック' ? 'bg-rose-500/20 text-rose-300' : 'bg-blue-500/20 text-blue-300'}`}>
-                             {report.status}
-                           </span>
-                        </div>
-                        <p className="text-[10px] text-slate-300 line-clamp-2 leading-snug">{report.summary}</p>
-                      </Link>
-                    ))}
+                    {aiReports.length === 0 && !isGeneratingInsights ? (
+                       <div className="text-center py-6">
+                         <p className="text-xs text-slate-400 font-bold">「インサイトを生成」をクリックして、<br/>現在のチーム状況を分析します。</p>
+                       </div>
+                    ) : (
+                      aiReports.map((report, idx) => (
+                        <Link href="/nippo" key={idx} className="block p-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-colors group cursor-pointer animate-in fade-in slide-in-from-bottom-2">
+                          <div className="flex justify-between items-center mb-1">
+                             <span className="text-[11px] font-black text-white">{report.user}</span>
+                             <span className={`text-[7px] font-black uppercase px-2 py-0.5 rounded-full ${report.status === 'ブロック' ? 'bg-rose-500/20 text-rose-300' : 'bg-blue-500/20 text-blue-300'}`}>
+                               {report.status}
+                             </span>
+                          </div>
+                          <p className="text-[10px] text-slate-300 line-clamp-2 leading-snug">{report.summary}</p>
+                        </Link>
+                      ))
+                    )}
                  </div>
               </div>
 
@@ -343,7 +372,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
         </div>
       ) : (
         /* =========================================================================
-           🧑‍💻 MEMBER DASHBOARD (Clean, Distraction-Free, No Focus Analytics)
+           🧑‍💻 MEMBER DASHBOARD 
            ========================================================================= */
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in slide-in-from-bottom-4 duration-500">
           

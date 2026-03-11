@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import bcrypt from "bcryptjs";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // 日付の空文字エラーを防ぐ安全装置
 const safeDate = (dateStr: any) => {
@@ -291,12 +292,49 @@ export async function getAllUsers() {
 
 // 🤖 8. AI GENERATE TASKS
 export async function generateTasksFromAI(notes: string) {
-  await new Promise(resolve => setTimeout(resolve, 1500)); 
-  return [
-    { title: "Review Meeting Notes", description: notes.slice(0, 100) + "...", priority: "HIGH" },
-    { title: "Draft Strategy Document", description: "Create the initial strategy based on the discussion", priority: "MEDIUM" },
-    { title: "Schedule Follow-up Sync", description: "Setup a meeting to review progress next week", priority: "LOW" }
-  ];
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return [{ title: "APIキーが.envに設定されていません", priority: "HIGH" }];
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    
+    // 💡 修正1: getModel ではなく getGenerativeModel が正しいメソッド名です
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-2.5-flash-lite",
+      // 💡 修正2: JSONモードを強制（余計なテキストやマークダウンを含めない）
+      generationConfig: {
+        responseMimeType: "application/json",
+      }
+    });
+
+    const prompt = `
+      あなたは優秀なプロジェクトマネージャーです。以下のテキストからタスクを抽出してください。
+      出力は必ず以下のJSON配列スキーマに厳密に従ってください。
+
+      [
+        {
+          "title": "タスクの簡潔なタイトル（日本語）",
+          "priority": "HIGH" または "MEDIUM" または "LOW"
+        }
+      ]
+
+      テキスト: "${notes}"
+    `;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+    
+    // JSONモードのおかげで、そのままパース可能です
+    const tasks = JSON.parse(text);
+    return tasks;
+
+  } catch (error) {
+    // 🚨 ターミナルに詳細なエラー理由を出力します
+    console.error("🚨 AI Generation Error:", error);
+    return [{ title: "AIによるタスク生成に失敗しました", priority: "HIGH" }];
+  }
 }
 
 export async function registerUser(formData: FormData) {
@@ -327,5 +365,49 @@ export async function updateUserProfile(userId: string, data: { name?: string, d
     return { success: true };
   } catch (error) {
     return { error: "Failed to update profile" };
+  }
+}
+
+//generate AI summary in the dashboard
+export async function generateDashboardInsights(tasksData: string) {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return [];
+
+    const { GoogleGenerativeAI } = await import("@google/generative-ai");
+    const genAI = new GoogleGenerativeAI(apiKey);
+    
+    // Using the same reliable 2.5 flash model
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-2.5-flash",
+      generationConfig: {
+        responseMimeType: "application/json",
+      }
+    });
+
+    const prompt = `
+      あなたは有能なプロジェクトマネージャーです。以下のチームのタスク状況データ（JSON）を分析し、
+      マネージャー向けに3〜4件の簡潔なインサイト（要約）を生成してください。
+      必ず以下のJSON配列形式で出力してください。
+
+      [
+        {
+          "user": "担当者名（例: Yashwan）",
+          "summary": "状況の簡潔な要約（例: データベース設計を完了。現在デプロイでブロック中。）",
+          "status": "ブロック", "順調", "優秀", "調査中" のいずれかを選択
+        }
+      ]
+
+      タスクデータ: ${tasksData}
+    `;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+    
+    return JSON.parse(text);
+
+  } catch (error) {
+    console.error("Dashboard AI Error:", error);
+    return [];
   }
 }

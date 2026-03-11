@@ -42,6 +42,9 @@ function LoginContent() {
       router.push("/");
       router.refresh();
     }
+    else {
+  router.push("/");
+}
   };
 
   const handleGoogleSignIn = () => {

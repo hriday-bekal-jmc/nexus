@@ -51,15 +51,20 @@ export default function ProjectClientContent({ initialProjects, allUsers, userRo
     setIsModalOpen(true);
   };
 
-  const handleAIIdentify = async () => {
+const handleAIIdentify = async () => {
     setIsGenerating(true);
-    const generated = await generateTasksFromAI(aiNotes);
-    setTasks(prev => [...prev, ...generated]);
-    setIsGenerating(false);
-    setUseAI(false);
-    setAiNotes("");
+    try {
+      // サーバーアクションを呼び出して本物のAIに処理させる
+      const generated = await generateTasksFromAI(aiNotes);
+      setTasks(prev => [...prev, ...generated]);
+    } catch (e) {
+      alert("AIの呼び出しに失敗しました。");
+    } finally {
+      setIsGenerating(false);
+      setUseAI(false);
+      setAiNotes(""); // メモをクリア
+    }
   };
-
   const handleAddTask = () => {
     setTasks([...tasks, { title: "", description: "", priority: "MEDIUM", assigneeId: "", startDate: "", dueDate: "" }]);
   };
