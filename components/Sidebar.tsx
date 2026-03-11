@@ -11,23 +11,23 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   const menuItems = [
-    { name: "Terminal", icon: <LayoutDashboard size={22} />, color: "text-cyan-400", glow: "shadow-cyan-500/40", href: "/" },
-    { name: "Projects", icon: <Folder size={22} />, color: "text-indigo-400", glow: "shadow-indigo-500/40", href: "/projects" },
-    { name: "Missions", icon: <CheckSquare size={22} />, color: "text-emerald-400", glow: "shadow-emerald-500/40", href: "/tasks" },
-    { name: "Intelligence", icon: <BarChart2 size={22} />, color: "text-amber-400", glow: "shadow-amber-500/40", href: "/nippo" },
-    { name: "Agents", icon: <Users size={22} />, color: "text-rose-400", glow: "shadow-rose-500/40", href: "/members" },
+    { name: "ダッシュボード", icon: <LayoutDashboard size={22} />, color: "text-cyan-400", glow: "shadow-cyan-500/40", href: "/" },
+    { name: "プロジェクト", icon: <Folder size={22} />, color: "text-indigo-400", glow: "shadow-indigo-500/40", href: "/projects" },
+    { name: "タスク管理", icon: <CheckSquare size={22} />, color: "text-emerald-400", glow: "shadow-emerald-500/40", href: "/tasks" },
+    { name: "業務報告・分析", icon: <BarChart2 size={22} />, color: "text-amber-400", glow: "shadow-amber-500/40", href: "/nippo" },
+    { name: "メンバー一覧", icon: <Users size={22} />, color: "text-rose-400", glow: "shadow-rose-500/40", href: "/members" },
   ];
 
   return (
     <aside className="w-64 bg-slate-950/90 backdrop-blur-3xl border-r border-white/5 flex flex-col p-6 z-20 h-screen sticky top-0 shrink-0">
       {/* ⚡ LOGO: 動的な輝きを追加 */}
       <div className="flex items-center gap-4 mb-14 px-2 group cursor-default">
-        <div className="w-11 h-11 bg-gradient-to-tr from-blue-600 to-cyan-400 rounded-2xl flex items-center justify-center text-white shadow-[0_0_25px_rgba(37,99,235,0.5)] group-hover:rotate-12 transition-transform duration-500">
+        <div className="w-11 h-11 bg-gradient-to-tr from-blue-600 to-cyan-400 rounded-2xl flex items-center justify-center text-white shadow-[0_0_25px_rgba(37,99,235,0.4)] group-hover:rotate-12 transition-transform duration-500">
           <Zap size={24} fill="currentColor" className="animate-pulse" />
         </div>
         <div className="flex flex-col">
           <span className="text-xl font-black tracking-tighter text-white leading-none">NEXUS</span>
-          <span className="text-[10px] font-black text-cyan-400 tracking-[0.3em]">SYSTEMS</span>
+          <span className="text-[10px] font-black text-cyan-400 tracking-[0.3em]">コア・システム</span>
         </div>
       </div>
       
@@ -63,7 +63,7 @@ export default function Sidebar() {
           onClick={() => signOut({ callbackUrl: '/' })}
           className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl font-black text-sm text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all duration-300"
         >
-          <LogOut size={20} /> Terminate
+          <LogOut size={20} /> ログアウト
         </button>
       </div>
     </aside>

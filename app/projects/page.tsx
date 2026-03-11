@@ -9,15 +9,15 @@ import { redirect } from "next/navigation";
 export default async function ProjectsPage() {
   const session = await getServerSession(authOptions);
   
-  if (!session) redirect("/");
+  // 🚨 ここも直接 /login に飛ばす
+  if (!session) redirect("/login");
 
-  // 🚀 Fetch everything on the server. No more "Loading..." spinners!
   const [projectData, users] = await Promise.all([
     getRecentProjects(),
     getAllUsers()
   ]);
 
- return (
+  return (
     <ProjectClientContent 
       initialProjects={projectData.projects || []} 
       allUsers={users || []} 

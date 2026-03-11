@@ -309,3 +309,23 @@ export async function registerUser(formData: FormData) {
     return { success: true };
   } catch (error) { return { error: "Registration failed." }; }
 }
+
+
+//updating the user profile (name, department, image)
+export async function updateUserProfile(userId: string, data: { name?: string, department?: string, image?: string }) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session || (session.user as any).id !== userId) return { error: "Unauthorized" };
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { ...data }
+    });
+
+    revalidatePath(`/members/${userId}`);
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    return { error: "Failed to update profile" };
+  }
+}

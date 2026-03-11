@@ -9,7 +9,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Nexus MVP",
-  description: "Next Generation Project Management",
+  description: "次世代プロジェクト管理システム",
 };
 
 export default function RootLayout({

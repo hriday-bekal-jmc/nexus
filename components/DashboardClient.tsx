@@ -83,10 +83,10 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
 
   // Mock AI Reports for Manager
   const mockAiReports = [
-    { id: 1, user: "Yashwan", summary: "Finished database schema setup. Blocked on deployment keys.", time: "2 hours ago", status: "Blocked" },
-    { id: 2, user: "Hriday", summary: "Designed the new Dashboard glass UI. Ready for review.", time: "4 hours ago", status: "On Track" },
-    { id: 3, user: "Alice", summary: "Updated API routes for task management. No issues.", time: "5 hours ago", status: "Excellent" },
-    { id: 4, user: "Bob", summary: "Investigating bug in authentication flow.", time: "1 day ago", status: "Investigating" },
+    { id: 1, user: "Yashwan", summary: "データベーススキーマの設定を完了しました。デプロイキーの承認待ちです。", time: "2時間前", status: "ブロック" },
+    { id: 2, user: "Hriday", summary: "ダッシュボードのGlassmorphism UIを設計しました。レビュー可能です。", time: "4時間前", status: "順調" },
+    { id: 3, user: "Alice", summary: "タスク管理用のAPIルートを更新しました。問題は確認されていません。", time: "5時間前", status: "優秀" },
+    { id: 4, user: "Bob", summary: "認証フローにおける不具合を調査中です。", time: "1日前", status: "調査中" },
   ];
 
   // ==========================================
@@ -166,8 +166,8 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
             <Zap size={20} fill="currentColor"/>
           </div>
           <div>
-            <h1 className="text-2xl font-black tracking-tight">{isManager ? "HQ Command Center" : `Mission Log: ${userName.split(' ')[0]}`}</h1>
-            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">{isManager ? "Administrative Overview" : "Operational Stream"}</p>
+            <h1 className="text-2xl font-black tracking-tight">{isManager ? "マネジメント・コンソール" : `${userName.split(' ')[0]} のワークスペース`}</h1>
+            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">{isManager ? "管理者向け全体状況" : "個人タスク状況"}</p>
           </div>
         </div>
         
@@ -176,21 +176,21 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
           <div className="hidden md:flex gap-3">
              <div className="px-4 py-2 bg-rose-50 border border-rose-100 rounded-xl flex flex-col items-center justify-center shadow-sm">
                 <span className="text-lg font-black text-rose-600 leading-none">{urgentStats.overdue}</span>
-                <span className="text-[8px] font-black uppercase text-rose-400 tracking-wider">Overdue</span>
+                <span className="text-[8px] font-black uppercase text-rose-400 tracking-wider">期限超過</span>
              </div>
              <div className="px-4 py-2 bg-amber-50 border border-amber-100 rounded-xl flex flex-col items-center justify-center shadow-sm">
                 <span className="text-lg font-black text-amber-600 leading-none">{urgentStats.dueToday}</span>
-                <span className="text-[8px] font-black uppercase text-amber-400 tracking-wider">Due Today</span>
+                <span className="text-[8px] font-black uppercase text-amber-400 tracking-wider">本日期限</span>
              </div>
              <div className="px-4 py-2 bg-blue-50 border border-blue-100 rounded-xl flex flex-col items-center justify-center shadow-sm">
                 <span className="text-lg font-black text-blue-600 leading-none">{urgentStats.highPriority}</span>
-                <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">High Prio</span>
+                <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">優先度(高)</span>
              </div>
           </div>
         )}
         {isManager && (
            <Link href="/projects" className="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-xs hover:scale-105 transition-all flex items-center gap-2 shadow-xl">
-             <Folder size={16} className="text-blue-400" /> Manage Projects
+             <Folder size={16} className="text-blue-400" /> プロジェクトを管理
            </Link>
         )}
       </div>
@@ -201,10 +201,10 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
            ========================================================================= */
         <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatTile title="Total Projects" value={stats.projectCount} icon={<Folder size={20}/>} color="bg-blue-500" />
-            <StatTile title="Active Tasks" value={stats.taskStats.todo + stats.taskStats.inProgress} icon={<Activity size={20}/>} color="bg-indigo-500" />
-            <StatTile title="Blocked Tasks" value={stats.taskStats.blocked} icon={<ShieldAlert size={20}/>} color="bg-rose-500" />
-            <StatTile title="Tasks Secured" value={stats.taskStats.done} icon={<CheckCircle size={20}/>} color="bg-emerald-500" />
+            <StatTile title="総プロジェクト数" value={stats.projectCount} icon={<Folder size={20}/>} color="bg-blue-500" />
+            <StatTile title="進行中のタスク" value={stats.taskStats.todo + stats.taskStats.inProgress} icon={<Activity size={20}/>} color="bg-indigo-500" />
+            <StatTile title="ブロック中のタスク" value={stats.taskStats.blocked} icon={<ShieldAlert size={20}/>} color="bg-rose-500" />
+            <StatTile title="完了したタスク" value={stats.taskStats.done} icon={<CheckCircle size={20}/>} color="bg-emerald-500" />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -212,7 +212,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
             <div className="lg:col-span-7 space-y-6">
               
               <div className="bg-white/40 backdrop-blur-2xl border border-white/80 p-8 rounded-[40px] shadow-xl">
-                 <h3 className="text-xl font-black text-slate-900 mb-6 italic flex items-center gap-3"><Users className="text-blue-600"/> Team Active Assignments</h3>
+                 <h3 className="text-xl font-black text-slate-900 mb-6 italic flex items-center gap-3"><Users className="text-blue-600"/> メンバー別タスク状況</h3>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                    {teamDetails.map((user: any, i: number) => (
                      <div key={i} className="p-5 bg-white/60 rounded-[30px] border border-white shadow-sm flex flex-col h-full">
@@ -223,12 +223,12 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                              </div>
                              <div>
                                 <p className="font-black text-slate-900 text-base leading-none">{user.name}</p>
-                                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-1">{user.totalTasks} Tasks</p>
+                                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-1">割当: {user.totalTasks}件</p>
                              </div>
                           </div>
                        </div>
                        <div className="flex-1 space-y-2">
-                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 pb-1">Working On:</p>
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 pb-1">現在着手中:</p>
                           {user.activeTasks.length > 0 ? user.activeTasks.slice(0, 3).map((t: any) => (
                             <div key={t.id} className="flex items-start gap-2 group">
                                <div className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${t.status === 'IN_PROGRESS' ? 'bg-blue-500 animate-pulse' : t.status === 'BLOCKED' ? 'bg-red-500' : 'bg-slate-300'}`} />
@@ -238,7 +238,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                                </div>
                             </div>
                           )) : (
-                            <p className="text-[10px] font-bold text-slate-400 italic">No active tasks.</p>
+                            <p className="text-[10px] font-bold text-slate-400 italic">現在担当しているタスクはありません。</p>
                           )}
                        </div>
                      </div>
@@ -248,7 +248,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
 
               <div className="bg-white/40 backdrop-blur-2xl border border-white/60 p-6 rounded-[32px] shadow-xl flex flex-col max-h-[350px]">
                  <div className="flex justify-between items-center mb-4 px-2">
-                    <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 uppercase tracking-widest"><TrendingUp size={16} className="text-blue-600"/> Project Portfolio</h3>
+                    <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 uppercase tracking-widest"><TrendingUp size={16} className="text-blue-600"/> プロジェクト進捗</h3>
                  </div>
                  <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar">
                     {projects.map((p: any) => {
@@ -271,7 +271,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
               </div>
 
               <div className="bg-white/40 backdrop-blur-2xl border border-white/80 p-8 rounded-[40px] shadow-xl">
-                 <h3 className="text-xl font-black text-slate-900 mb-6 italic flex items-center gap-3"><Calendar className="text-indigo-500"/> Deadline Heatmap</h3>
+                 <h3 className="text-xl font-black text-slate-900 mb-6 italic flex items-center gap-3"><Calendar className="text-indigo-500"/> 期限ヒートマップ</h3>
                  <CalendarHeatmap allTasks={allTasks} />
               </div>
             </div>
@@ -280,14 +280,14 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
             <div className="lg:col-span-5 space-y-6">
               <div className="bg-blue-600 rounded-[32px] p-6 text-white shadow-xl shadow-blue-500/20 relative overflow-hidden">
                  <div className="absolute top-0 right-0 p-4 opacity-10"><Target size={80}/></div>
-                 <h4 className="text-[9px] font-black uppercase tracking-[0.3em] mb-4">Department Status</h4>
+                 <h4 className="text-[9px] font-black uppercase tracking-[0.3em] mb-4">部門別ステータス</h4>
                  <div className="grid grid-cols-2 gap-4">
                    <div>
-                     <p className="text-[9px] font-bold uppercase opacity-60 mb-1">Total Active Tasks</p>
+                     <p className="text-[9px] font-bold uppercase opacity-60 mb-1">未完了タスク</p>
                      <p className="text-3xl font-black italic">{allTasks.filter((t:any) => t.status !== "DONE").length}</p>
                    </div>
                    <div>
-                     <p className="text-[9px] font-bold uppercase opacity-60 mb-1">Secured Tasks</p>
+                     <p className="text-[9px] font-bold uppercase opacity-60 mb-1">完了タスク</p>
                      <p className="text-3xl font-black italic text-cyan-300">{weeklyDone}</p>
                    </div>
                  </div>
@@ -297,7 +297,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                  <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={60} /></div>
                  <div className="relative z-10 flex justify-between items-center mb-4">
                     <h4 className="text-[9px] font-black uppercase tracking-[0.3em] text-purple-400 flex items-center gap-2">
-                      <Sparkles size={12}/> AI Report Insights
+                      <Sparkles size={12}/> AIによる業務要約
                     </h4>
                  </div>
                  <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar flex-1 z-10">
@@ -305,7 +305,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                       <Link href="/nippo" key={report.id} className="block p-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-colors group cursor-pointer">
                         <div className="flex justify-between items-center mb-1">
                            <span className="text-[11px] font-black text-white">{report.user}</span>
-                           <span className={`text-[7px] font-black uppercase px-2 py-0.5 rounded-full ${report.status === 'Blocked' ? 'bg-rose-500/20 text-rose-300' : 'bg-blue-500/20 text-blue-300'}`}>
+                           <span className={`text-[7px] font-black uppercase px-2 py-0.5 rounded-full ${report.status === 'ブロック' ? 'bg-rose-500/20 text-rose-300' : 'bg-blue-500/20 text-blue-300'}`}>
                              {report.status}
                            </span>
                         </div>
@@ -316,19 +316,19 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
               </div>
 
               <div className="bg-white/40 backdrop-blur-xl border border-white/60 p-6 rounded-[32px] shadow-md flex flex-col max-h-[300px]">
-                <h4 className="text-[10px] font-black text-slate-900 mb-4 uppercase tracking-widest flex items-center gap-2"><AlertCircle size={14} className="text-rose-500"/> Global Deadlines</h4>
+                <h4 className="text-[10px] font-black text-slate-900 mb-4 uppercase tracking-widest flex items-center gap-2"><AlertCircle size={14} className="text-rose-500"/> プロジェクト期限一覧</h4>
                 <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar">
                   {allTasks.filter((t:any) => t.dueDate && t.status !== "DONE").sort((a:any, b:any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((t:any, i:number) => {
                       const isUrgent = new Date(t.dueDate).getTime() - Date.now() < 86400000 * 2;
                       return (
                         <div key={i} className="flex items-center gap-3 group">
                           <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 shadow-sm ${isUrgent ? 'bg-rose-500 text-white' : 'bg-slate-100 text-slate-800'}`}>
-                            <span className="text-[6px] font-black uppercase opacity-60">{new Date(t.dueDate).toLocaleString('en-us', {month:'short'})}</span>
+                            <span className="text-[6px] font-black uppercase opacity-60">{new Date(t.dueDate).toLocaleString('ja-JP', {month:'short'})}</span>
                             <span className="text-sm font-black leading-none">{new Date(t.dueDate).getDate()}</span>
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="text-[11px] font-black text-slate-800 truncate leading-tight">{t.title}</p>
-                            <p className="text-[8px] font-bold text-slate-500 truncate uppercase mt-0.5">{t.assignee?.name || "Unassigned"} • {t.projectName}</p>
+                            <p className="text-[8px] font-bold text-slate-500 truncate uppercase mt-0.5">{t.assignee?.name || "未割当"} • {t.projectName}</p>
                           </div>
                         </div>
                       )
@@ -354,9 +354,9 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
             <div className="bg-white/40 backdrop-blur-2xl border border-white/60 p-8 rounded-[40px] shadow-xl relative overflow-hidden">
               <div className="flex flex-col md:flex-row items-center justify-between gap-6">
                 <div className="flex-1 text-center md:text-left">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Currently Active</span>
-                  <h2 className="text-2xl font-black leading-tight text-slate-800 mt-1">{activeTask ? activeTask.title : "Ready for Mission Selection"}</h2>
-                  <p className="text-xs font-bold text-blue-500 mt-1 mb-6">{activeTask ? activeTask.projectName : "Select from the queue below"}</p>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">現在実行中のタスク</span>
+                  <h2 className="text-2xl font-black leading-tight text-slate-800 mt-1">{activeTask ? activeTask.title : "着手するタスクを選択してください"}</h2>
+                  <p className="text-xs font-bold text-blue-500 mt-1 mb-6">{activeTask ? activeTask.projectName : "以下のタスク一覧から選択"}</p>
                   <div className="flex items-center justify-center md:justify-start gap-5">
                     <button 
                       disabled={!activeTaskId}
@@ -376,8 +376,8 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
             {/* MISSION QUEUE */}
             <div className="bg-white/20 backdrop-blur-xl border border-white/60 rounded-[32px] p-6 overflow-hidden flex flex-col max-h-[400px] shadow-lg">
               <div className="flex justify-between items-center mb-4 px-2">
-                <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-widest"><ListChecks className="text-blue-500" size={16}/> Mission Queue</h3>
-                <span className="text-[9px] font-black text-slate-400 uppercase">{myTasks.length} Pending</span>
+                <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-widest"><ListChecks className="text-blue-500" size={16}/> 割り当てられたタスク</h3>
+                <span className="text-[9px] font-black text-slate-400 uppercase">残り {myTasks.length} 件</span>
               </div>
               <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar">
                 {myTasks.map((t: any) => (
@@ -403,7 +403,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                 ))}
                 {myTasks.length === 0 && (
                   <div className="py-8 text-center bg-white/10 rounded-2xl border-2 border-dashed border-white/20">
-                    <p className="text-slate-400 font-bold text-[11px]">No missions assigned. Standing by.</p>
+                    <p className="text-slate-400 font-bold text-[11px]">現在割り当てられているタスクはありません。</p>
                   </div>
                 )}
               </div>
@@ -418,14 +418,14 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                 <div className="absolute top-0 right-0 p-4 opacity-10"><MessageSquare size={60} /></div>
                 <div className="relative z-10 flex flex-col h-full">
                    <h4 className="text-[9px] font-black mb-4 uppercase tracking-[0.3em] text-indigo-400 flex items-center gap-2">
-                     <Sparkles size={12}/> The Collaboration Hub
+                     <Sparkles size={12}/> コラボレーション・ハブ
                    </h4>
                    <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar flex-1">
                      {myRecentFeedback.length > 0 ? myRecentFeedback.map((fb, i) => (
                         <div key={i} className="p-3 bg-white/10 border border-white/10 rounded-xl hover:bg-white/20 transition-colors">
                            <p className="text-[11px] font-medium text-slate-200 leading-snug">
-                             <span className="font-black text-white">{fb.data.user?.name || "Team"}</span>
-                             {fb.type === 'reaction' ? ` reacted ${fb.data.emoji} to ` : ` commented on `}
+                             <span className="font-black text-white">{fb.data.user?.name || "チームメンバー"}</span>
+                             {fb.type === 'reaction' ? ` がリアクション(${fb.data.emoji})しました ` : ` がコメントしました `}
                              <span className="font-bold text-indigo-300">"{fb.task.title}"</span>
                            </p>
                            {fb.type === 'comment' && (
@@ -433,7 +433,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                            )}
                         </div>
                      )) : (
-                        <p className="text-[10px] text-slate-400 font-bold italic mt-2">No recent feedback. Keep it up!</p>
+                        <p className="text-[10px] text-slate-400 font-bold italic mt-2">新着のフィードバックはありません。</p>
                      )}
                    </div>
                 </div>
@@ -441,14 +441,14 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
 
              {/* Personal Deadlines */}
              <div className="bg-white/40 backdrop-blur-xl border border-white/60 p-6 rounded-[32px] shadow-md flex flex-col max-h-[300px]">
-                <h4 className="text-[10px] font-black text-slate-900 mb-4 uppercase tracking-widest flex items-center gap-2"><AlertCircle size={14} className="text-rose-500"/> My Deadlines</h4>
+                <h4 className="text-[10px] font-black text-slate-900 mb-4 uppercase tracking-widest flex items-center gap-2"><AlertCircle size={14} className="text-rose-500"/> 個人タスクの期限</h4>
                 <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar">
                   {myTasks.filter((t:any) => t.dueDate).sort((a:any, b:any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((t:any, i:number) => {
                       const isUrgent = new Date(t.dueDate).getTime() - Date.now() < 86400000 * 2;
                       return (
                         <div key={i} className="flex items-center gap-3 group">
                           <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 shadow-sm ${isUrgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-100 text-slate-800'}`}>
-                            <span className="text-[7px] font-black uppercase opacity-60">{new Date(t.dueDate).toLocaleString('en-us', {month:'short'})}</span>
+                            <span className="text-[7px] font-black uppercase opacity-60">{new Date(t.dueDate).toLocaleString('ja-JP', {month:'short'})}</span>
                             <span className="text-sm font-black leading-none">{new Date(t.dueDate).getDate()}</span>
                           </div>
                           <div className="min-w-0 flex-1">
@@ -459,7 +459,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                       )
                   })}
                   {myTasks.filter((t:any) => t.dueDate).length === 0 && (
-                    <p className="text-[10px] text-slate-500 font-bold italic">No upcoming deadlines assigned to you.</p>
+                    <p className="text-[10px] text-slate-500 font-bold italic">現在、期限が設定されたタスクはありません。</p>
                   )}
                 </div>
              </div>
@@ -481,7 +481,7 @@ function ActivityFeed({ feed, currentUserId, router }: any) {
   return (
     <div className="bg-white/30 backdrop-blur-2xl border border-white/60 p-6 rounded-[32px] shadow-lg flex flex-col max-h-[350px]">
       <h4 className="text-[10px] font-black text-slate-900 mb-4 uppercase tracking-widest flex items-center gap-2">
-         <History size={14} className="text-blue-500"/> Team Pulse
+         <History size={14} className="text-blue-500"/> チーム・アクティビティ
       </h4>
       <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar flex-1">
          {feed.map((t: any, i: number) => (
@@ -540,8 +540,8 @@ function InteractiveFeedItem({ task, currentUserId, router }: any) {
           </div>
           <div className="min-w-0 flex-1">
              <p className="text-[10px] font-medium text-slate-800 leading-tight">
-                <span className="font-black text-blue-700">{task.assignee?.name || "Unassigned"}</span> 
-                <span className="text-slate-500">{task.status === 'DONE' ? ' completed ' : task.status === 'BLOCKED' ? ' blocked ' : ' updated '}</span>
+                <span className="font-black text-blue-700">{task.assignee?.name || "未割当"}</span> 
+                <span className="text-slate-500">{task.status === 'DONE' ? ' が完了しました ' : task.status === 'BLOCKED' ? ' がブロックされています ' : ' を更新しました '}</span>
                 <span className="font-bold text-slate-900">"{task.title}"</span>
              </p>
              <p className="text-[8px] font-bold text-slate-400 mt-0.5 uppercase tracking-widest truncate">{task.projectName}</p>
@@ -578,7 +578,7 @@ function InteractiveFeedItem({ task, currentUserId, router }: any) {
                      autoFocus
                      value={commentText} 
                      onChange={(e) => setCommentText(e.target.value)} 
-                     placeholder="Reply..." 
+                     placeholder="返信を入力..." 
                      className="flex-1 bg-white/60 border border-white/80 rounded-lg px-2 py-1 text-[10px] font-bold outline-none focus:ring-1 focus:ring-blue-400 shadow-inner text-slate-800"
                    />
                    <button type="submit" className="w-5 h-5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center transition-colors shadow-sm">
@@ -643,7 +643,7 @@ function CalendarHeatmap({ allTasks }: { allTasks: any[] }) {
   return (
     <div className="w-full">
       <div className="grid grid-cols-7 gap-2 mb-2">
-        {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
+        {['日','月','火','水','木','金','土'].map(d => (
           <div key={d} className="text-center text-[9px] font-black text-slate-400 uppercase tracking-widest">{d}</div>
         ))}
       </div>
@@ -673,7 +673,7 @@ function CalendarHeatmap({ allTasks }: { allTasks: any[] }) {
                         <span className="font-bold text-[10px] block mb-0.5 truncate">{t.title}</span>
                         <div className="flex justify-between items-center text-[8px] text-slate-400">
                            <span className="truncate mr-2">{t.projectName}</span>
-                           <span className="font-black text-blue-300 shrink-0">{t.assignee?.name || "Unassigned"}</span>
+                           <span className="font-black text-blue-300 shrink-0">{t.assignee?.name || "未割当"}</span>
                         </div>
                       </div>
                     ))}

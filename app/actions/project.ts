@@ -15,7 +15,7 @@ export async function createProject(formData: FormData) {
         name,
         description,
         status: "PLANNING",
-        // For now, we'll hardcode a manager ID or leave it 
+        // For now, we'll hardcode a manager ID or leave it My Project 4101Nexus MVP
         // until we link the session, to keep it simple.
       },
     });

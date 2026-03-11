@@ -34,8 +34,8 @@ export default function CreateProjectModal({ isOpen, onClose, allUsers, editProj
     setTimeout(() => {
       setTasks(prev => [
         ...prev,
-        { title: "Review Initial Intel", priority: "HIGH" },
-        { title: "Define Core Database Schema", priority: "MEDIUM" }
+        { title: "初期要件の確認", priority: "HIGH" },
+        { title: "データベーススキーマの定義", priority: "MEDIUM" }
       ]);
       setIsGenerating(false);
       setUseAI(false);
@@ -72,22 +72,22 @@ export default function CreateProjectModal({ isOpen, onClose, allUsers, editProj
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xl" onClick={onClose}></div>
       <form onSubmit={handleSubmit} className="relative w-full max-w-2xl bg-white rounded-[40px] shadow-2xl p-10 max-h-[90vh] overflow-y-auto scrollbar-hide">
         <div className="flex justify-between items-center mb-10">
-          <h2 className="text-3xl font-black text-slate-900 italic tracking-tighter">{editProject ? "Modify Intelligence" : "Launch Mission"}</h2>
+          <h2 className="text-3xl font-black text-slate-900 italic tracking-tighter">{editProject ? "プロジェクトの編集" : "新規プロジェクトの作成"}</h2>
           <button type="button" onClick={onClose} disabled={isSubmitting} className="p-3 bg-slate-50 text-slate-400 rounded-2xl hover:bg-slate-100 transition-all"><X size={20}/></button>
         </div>
 
         <div className="space-y-8">
           <input type="hidden" name="id" value={editProject?.id} />
-          <input name="name" defaultValue={editProject?.name} placeholder="Mission Identity" className="w-full text-2xl font-black border-b-4 border-slate-50 focus:border-blue-500 outline-none pb-2" required />
-          <textarea name="description" defaultValue={editProject?.description} placeholder="Objective Briefing..." className="w-full bg-slate-50 rounded-[24px] p-5 text-sm font-medium outline-none" rows={3} />
+          <input name="name" defaultValue={editProject?.name} placeholder="プロジェクト名" className="w-full text-2xl font-black border-b-4 border-slate-50 focus:border-blue-500 outline-none pb-2" required />
+          <textarea name="description" defaultValue={editProject?.description} placeholder="プロジェクトの目的や概要を入力..." className="w-full bg-slate-50 rounded-[24px] p-5 text-sm font-medium outline-none" rows={3} />
           
           <div className="flex items-center gap-3 bg-slate-50 rounded-2xl px-5 py-4 border-2 border-transparent focus-within:border-blue-100">
             <LinkIcon size={18} className="text-slate-400" />
-            <input name="drive_url" defaultValue={editProject?.drive_url} placeholder="Google Drive / Workspace Intel Link" className="bg-transparent w-full text-xs font-bold outline-none" />
+            <input name="drive_url" defaultValue={editProject?.drive_url} placeholder="Google Drive 共有リンク" className="bg-transparent w-full text-xs font-bold outline-none" />
           </div>
 
           <div>
-            <label className="text-[10px] font-black uppercase text-slate-400 mb-4 block">Deployment Team</label>
+            <label className="text-[10px] font-black uppercase text-slate-400 mb-4 block">アサインするメンバー</label>
             <div className="flex flex-wrap gap-2">
               {allUsers?.map((user: any) => {
                 const isSelected = selectedMemberIds.includes(user.id);
@@ -106,18 +106,18 @@ export default function CreateProjectModal({ isOpen, onClose, allUsers, editProj
           {/* 📝 タスク管理セクション (手動追加 & 編集) */}
           <div className="bg-slate-50/50 p-6 rounded-[32px] border border-slate-100">
             <div className="flex justify-between items-center mb-4">
-               <label className="text-[10px] font-black uppercase text-slate-400">Mission Tasks</label>
+               <label className="text-[10px] font-black uppercase text-slate-400">タスク一覧</label>
                <button type="button" onClick={() => setUseAI(!useAI)} className="text-[10px] font-black flex items-center gap-1 text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full hover:bg-indigo-100 transition-all">
-                  <Sparkles size={12}/> {useAI ? "Close AI" : "AI Assist"}
+                  <Sparkles size={12}/> {useAI ? "AIアシストを閉じる" : "AIでタスクを自動生成"}
                </button>
             </div>
 
             {/* AI Brain-Dump */}
             {useAI && (
               <div className="mb-6 space-y-3 animate-in fade-in zoom-in duration-300">
-                <textarea value={aiNotes} onChange={(e) => setAiNotes(e.target.value)} placeholder="Paste notes here to generate tasks..." className="w-full bg-white rounded-2xl p-4 text-sm outline-none border-2 border-indigo-100 focus:border-indigo-300 min-h-[100px]" />
+                <textarea value={aiNotes} onChange={(e) => setAiNotes(e.target.value)} placeholder="会議のメモや議事録、メールの本文を貼り付けてください..." className="w-full bg-white rounded-2xl p-4 text-sm outline-none border-2 border-indigo-100 focus:border-indigo-300 min-h-[100px]" />
                 <button type="button" disabled={!aiNotes || isGenerating} onClick={handleAIIdentify} className="w-full py-2 bg-indigo-600 text-white rounded-xl font-black text-xs shadow-md hover:bg-indigo-700 disabled:opacity-50 transition-all">
-                  {isGenerating ? "Analyzing Patterns..." : "Generate Tasks"}
+                  {isGenerating ? "内容を分析中..." : "タスクを抽出する"}
                 </button>
               </div>
             )}
@@ -132,9 +132,9 @@ export default function CreateProjectModal({ isOpen, onClose, allUsers, editProj
                   <select value={t.priority} onChange={(e) => {
                     const newTasks = [...tasks]; newTasks[i].priority = e.target.value; setTasks(newTasks);
                   }} className="text-[10px] font-black bg-slate-100 text-slate-600 p-2 rounded-lg outline-none cursor-pointer">
-                    <option value="HIGH">HIGH</option>
-                    <option value="MEDIUM">MEDIUM</option>
-                    <option value="LOW">LOW</option>
+                    <option value="HIGH">高 (HIGH)</option>
+                    <option value="MEDIUM">中 (MEDIUM)</option>
+                    <option value="LOW">低 (LOW)</option>
                   </select>
                   <button type="button" onClick={() => setTasks(tasks.filter((_, idx) => idx !== i))} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
                 </div>
@@ -142,14 +142,14 @@ export default function CreateProjectModal({ isOpen, onClose, allUsers, editProj
 
               {/* 手動追加行 */}
               <div className="flex items-center gap-3 bg-white/50 p-2 rounded-xl border border-dashed border-slate-300">
-                <input placeholder="Add a new task manually..." value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddTask(); } }} className="flex-1 bg-transparent text-sm font-bold outline-none px-2" />
+                <input placeholder="タスクを手動で追加..." value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddTask(); } }} className="flex-1 bg-transparent text-sm font-bold outline-none px-2" />
                 <button type="button" onClick={handleAddTask} className="p-2 bg-slate-900 text-white rounded-lg hover:bg-slate-700 transition-colors"><Plus size={16}/></button>
               </div>
             </div>
           </div>
 
           <button type="submit" disabled={isSubmitting} className="w-full py-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-[24px] font-black shadow-xl hover:shadow-blue-500/50 transition-all text-lg italic tracking-tight disabled:opacity-50 disabled:cursor-not-allowed">
-            {isSubmitting ? "💾 Synchronizing..." : (editProject ? "💾 Save Strategic Changes" : "🚀 Launch Mission Now")}
+            {isSubmitting ? "💾 データを保存中..." : (editProject ? "💾 変更を保存する" : "🚀 プロジェクトを開始する")}
           </button>
         </div>
       </form>
