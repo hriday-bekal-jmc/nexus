@@ -22,6 +22,7 @@ model User {
   role          String    @default("MEMBER") // MANAGER または MEMBER
   createdAt     DateTime  @default(now())
 
+
   // リレーション（関係性）
   accounts        Account[]
   sessions        Session[]
@@ -30,6 +31,8 @@ model User {
   tasks           Task[]
   reports         Report[]
   comments        Comment[]
+  taskComments    TaskComment[]
+  taskReactions   TaskReaction[]
 }
 
 model Account {
@@ -92,6 +95,9 @@ model Task {
 
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   assignee    User?    @relation(fields: [assigneeId], references: [id])
+
+  comments    TaskComment[]
+  reactions   TaskReaction[]
 }
 
 model Report {
@@ -115,4 +121,32 @@ model Comment {
 
   report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ==========================================
+// 3. Collaboration & Activity
+// ==========================================
+model TaskComment {
+  id        String   @id @default(cuid())
+  text      String   @db.Text
+  taskId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TaskReaction {
+  id        String   @id @default(cuid())
+  emoji     String
+  taskId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 1人のユーザーが1つのタスクに同じ絵文字を複数回つけられないようにする
+  @@unique([taskId, userId, emoji]) 
 }

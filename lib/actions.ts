@@ -195,15 +195,60 @@ export async function getRecentProjects() {
       include: {
         members: true,
         tasks: {
-           include: { assignee: true },
+           include: { 
+             assignee: true,
+             comments: { include: { user: true }, orderBy: { createdAt: 'asc' } }, // 👈 追加
+             reactions: { include: { user: true } } // 👈 追加
+           },
            orderBy: { createdAt: 'asc' }
         },
       }
     });
     return { projects };
   } catch (error) {
-    console.error("Fetch Projects Error:", error);
     return { projects: [] };
+  }
+}
+
+// ==========================================
+// 👇 Comments and reactions
+// ==========================================
+
+export async function addTaskComment(taskId: string, text: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return { error: "Unauthorized" };
+
+    await prisma.taskComment.create({
+      data: { text, taskId, userId: (session.user as any).id }
+    });
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    return { error: "Failed to add comment" };
+  }
+}
+
+export async function toggleTaskReaction(taskId: string, emoji: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return { error: "Unauthorized" };
+    const userId = (session.user as any).id;
+
+    const existing = await prisma.taskReaction.findUnique({
+      where: { taskId_userId_emoji: { taskId, userId, emoji } }
+    });
+
+    if (existing) {
+      await prisma.taskReaction.delete({ where: { id: existing.id } }); // すでにあれば外す
+    } else {
+      await prisma.taskReaction.create({ data: { taskId, userId, emoji } }); // なければ付ける
+    }
+    
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    return { error: "Failed to toggle reaction" };
   }
 }
 

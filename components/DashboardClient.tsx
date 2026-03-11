@@ -6,41 +6,67 @@ import { useRouter } from "next/navigation";
 import { 
   Folder, Pause, Play, Sparkles, BarChart2, ShieldAlert, 
   CheckCircle, Clock, LayoutGrid, TrendingUp, Calendar, Target, Zap, Users,
-  ArrowRight, Activity, AlertCircle, ListChecks
+  ArrowRight, Activity, AlertCircle, ListChecks, History, MessageSquare, Send
 } from "lucide-react";
 import { 
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, 
-  Cell, LineChart, Line, CartesianGrid, AreaChart, Area
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from "recharts";
-import { toggleTaskStatus, updateTaskTime } from "@/lib/actions";
+import { toggleTaskStatus, updateTaskTime, toggleTaskReaction, addTaskComment } from "@/lib/actions";
 
 export default function DashboardClient({ userName, userId, userRole, stats, projects }: any) {
   const router = useRouter();
   const isManager = userRole === "MANAGER";
 
-  // --- データ計算 ---
+  // ==========================================
+  // ⚙️ DATA PROCESSING (Shared & Specific)
+  // ==========================================
   const allTasks = useMemo(() => projects.flatMap((p: any) => p.tasks.map((t: any) => ({ ...t, projectName: p.name }))), [projects]);
   const myTasks = useMemo(() => allTasks.filter((t: any) => t.assigneeId === userId && t.status !== "DONE"), [allTasks, userId]);
   
-  const weeklyTotal = allTasks.length;
   const weeklyDone = allTasks.filter((t:any) => t.status === "DONE").length;
-  const weeklyGoalPercent = weeklyTotal > 0 ? Math.round((weeklyDone / weeklyTotal) * 100) : 0;
+  const weeklyTotal = allTasks.length;
 
-  const teamPerformanceData = useMemo(() => {
-    const memberStats: any = {};
-    projects.forEach((p: any) => {
-      p.members.forEach((m: any) => {
-        if (!memberStats[m.id]) memberStats[m.id] = { name: m.name, done: 0, total: 0 };
+  // Urgent Action Center (Member)
+  const urgentStats = useMemo(() => {
+    const today = new Date(); today.setHours(0,0,0,0);
+    return {
+      overdue: myTasks.filter((t:any) => t.dueDate && new Date(t.dueDate) < today).length,
+      dueToday: myTasks.filter((t:any) => t.dueDate && new Date(t.dueDate).getTime() === today.getTime()).length,
+      highPriority: myTasks.filter((t:any) => t.priority === 'HIGH').length
+    };
+  }, [myTasks]);
+
+  // Collaboration Hub Feedback (Member)
+  const myRecentFeedback = useMemo(() => {
+    const feedback: any[] = [];
+    myTasks.forEach((t: any) => {
+      t.comments?.forEach((c: any) => {
+        if (c.userId !== userId) feedback.push({ type: 'comment', data: c, task: t, time: new Date(c.createdAt) });
       });
-      p.tasks.forEach((t: any) => {
-        if (t.assigneeId && memberStats[t.assigneeId]) {
-          memberStats[t.assigneeId].total += 1;
-          if (t.status === "DONE") memberStats[t.assigneeId].done += 1;
-        }
+      t.reactions?.forEach((r: any) => {
+        if (r.userId !== userId) feedback.push({ type: 'reaction', data: r, task: t, time: new Date(r.createdAt) });
       });
     });
-    return Object.values(memberStats);
-  }, [projects]);
+    return feedback.sort((a, b) => b.time.getTime() - a.time.getTime()).slice(0, 5);
+  }, [myTasks, userId]);
+
+  // Team Active Assignments (Manager)
+  const teamDetails = useMemo(() => {
+    const usersMap = new Map();
+    projects.forEach((p: any) => {
+      p.members.forEach((m: any) => {
+        if (!usersMap.has(m.id)) usersMap.set(m.id, { ...m, totalTasks: 0, activeTasks: [] });
+      });
+    });
+    allTasks.forEach((t: any) => {
+      if (t.assigneeId && usersMap.has(t.assigneeId)) {
+        const user = usersMap.get(t.assigneeId);
+        user.totalTasks += 1;
+        if (t.status !== "DONE") user.activeTasks.push(t);
+      }
+    });
+    return Array.from(usersMap.values());
+  }, [projects, allTasks]);
 
   const velocityData = useMemo(() => {
     return projects.map((p: any) => {
@@ -50,13 +76,29 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
     });
   }, [projects]);
 
-  // --- タイマー ---
+  // Global Activity Feed (Shared) - より多く取得してスクロールさせる
+  const activityFeed = useMemo(() => {
+    return [...allTasks].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 15);
+  }, [allTasks]);
+
+  // Mock AI Reports for Manager
+  const mockAiReports = [
+    { id: 1, user: "Yashwan", summary: "Finished database schema setup. Blocked on deployment keys.", time: "2 hours ago", status: "Blocked" },
+    { id: 2, user: "Hriday", summary: "Designed the new Dashboard glass UI. Ready for review.", time: "4 hours ago", status: "On Track" },
+    { id: 3, user: "Alice", summary: "Updated API routes for task management. No issues.", time: "5 hours ago", status: "Excellent" },
+    { id: 4, user: "Bob", summary: "Investigating bug in authentication flow.", time: "1 day ago", status: "Investigating" },
+  ];
+
+  // ==========================================
+  // ⏱️ PERSISTENT TIMER LOGIC
+  // ==========================================
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [displaySeconds, setDisplaySeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const lastSyncTime = useRef<number>(0);
 
   useEffect(() => {
+    if (isManager) return;
     const savedTaskId = localStorage.getItem("nexus_active_task_id");
     const savedStartTimestamp = localStorage.getItem("nexus_timer_start_at");
     const savedRunning = localStorage.getItem("nexus_timer_running") === "true";
@@ -74,13 +116,11 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
         lastSyncTime.current = elapsed;
       }
     }
-  }, [allTasks]);
+  }, [allTasks, isManager]);
 
   useEffect(() => {
     let interval: any;
-    if (isTimerRunning && activeTaskId) {
-      interval = setInterval(() => setDisplaySeconds(prev => prev + 1), 1000);
-    }
+    if (isTimerRunning && activeTaskId) interval = setInterval(() => setDisplaySeconds(prev => prev + 1), 1000);
     return () => clearInterval(interval);
   }, [isTimerRunning, activeTaskId]);
 
@@ -98,6 +138,15 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
     setIsTimerRunning(!isTimerRunning);
   };
 
+  const selectTask = (task: any) => {
+    if (isTimerRunning) handleToggleTimer();
+    setActiveTaskId(task.id);
+    setDisplaySeconds(task.timeElapsed || 0);
+    lastSyncTime.current = task.timeElapsed || 0;
+    localStorage.setItem("nexus_active_task_id", task.id);
+    localStorage.setItem("nexus_timer_running", "false");
+  };
+
   const formatTime = (s: number) => {
     const h = Math.floor(s / 3600).toString().padStart(2, '0');
     const m = Math.floor((s % 3600) / 60).toString().padStart(2, '0');
@@ -108,206 +157,534 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
   const activeTask = allTasks.find((t: any) => t.id === activeTaskId);
 
   return (
-    <div className="max-w-7xl mx-auto pb-12 space-y-6 animate-in fade-in duration-700 text-slate-900">
+    <div className="max-w-7xl mx-auto pb-24 space-y-6 animate-in fade-in duration-700 text-slate-900">
       
-      {/* HEADER: コンパクト化 */}
+      {/* 🧊 HEADER */}
       <div className="flex justify-between items-center px-8 py-6 bg-white/30 backdrop-blur-xl border border-white/40 rounded-[32px] shadow-lg">
         <div className="flex items-center gap-4">
-          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg">
+          <div className="w-10 h-10 bg-gradient-to-tr from-blue-600 to-cyan-500 rounded-xl flex items-center justify-center text-white shadow-lg">
             <Zap size={20} fill="currentColor"/>
           </div>
           <div>
-            <h1 className="text-2xl font-black tracking-tight">{isManager ? "HQ Command" : `Mission Log: ${userName.split(' ')[0]}`}</h1>
-            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">{isManager ? "Administrative Control" : "Operational Stream"}</p>
+            <h1 className="text-2xl font-black tracking-tight">{isManager ? "HQ Command Center" : `Mission Log: ${userName.split(' ')[0]}`}</h1>
+            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">{isManager ? "Administrative Overview" : "Operational Stream"}</p>
           </div>
         </div>
+        
+        {/* Urgent Action Center (Idea D) - For Members */}
         {!isManager && (
-          <Link href="/nippo" className="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-xs hover:scale-105 transition-all flex items-center gap-2 shadow-xl">
-            <Sparkles size={16} className="text-blue-400" /> AI Report
-          </Link>
+          <div className="hidden md:flex gap-3">
+             <div className="px-4 py-2 bg-rose-50 border border-rose-100 rounded-xl flex flex-col items-center justify-center shadow-sm">
+                <span className="text-lg font-black text-rose-600 leading-none">{urgentStats.overdue}</span>
+                <span className="text-[8px] font-black uppercase text-rose-400 tracking-wider">Overdue</span>
+             </div>
+             <div className="px-4 py-2 bg-amber-50 border border-amber-100 rounded-xl flex flex-col items-center justify-center shadow-sm">
+                <span className="text-lg font-black text-amber-600 leading-none">{urgentStats.dueToday}</span>
+                <span className="text-[8px] font-black uppercase text-amber-400 tracking-wider">Due Today</span>
+             </div>
+             <div className="px-4 py-2 bg-blue-50 border border-blue-100 rounded-xl flex flex-col items-center justify-center shadow-sm">
+                <span className="text-lg font-black text-blue-600 leading-none">{urgentStats.highPriority}</span>
+                <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">High Prio</span>
+             </div>
+          </div>
+        )}
+        {isManager && (
+           <Link href="/projects" className="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-xs hover:scale-105 transition-all flex items-center gap-2 shadow-xl">
+             <Folder size={16} className="text-blue-400" /> Manage Projects
+           </Link>
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* LEFT COLUMN: メインコンテンツ */}
-        <div className="lg:col-span-8 space-y-6">
-          
-          {!isManager && (
-            <>
-              {/* COMPACT TIMER SECTION */}
-              <div className="bg-white/40 backdrop-blur-2xl border border-white/60 p-8 rounded-[40px] shadow-xl relative overflow-hidden">
-                <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-                  <div className="flex-1 space-y-4 text-center md:text-left">
-                    <div>
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Currently Active</span>
-                      <h2 className="text-2xl font-black leading-tight text-slate-800">{activeTask ? activeTask.title : "Ready for Mission Selection"}</h2>
-                      <p className="text-xs font-bold text-blue-500 mt-1">{activeTask ? activeTask.projectName : "Select from the queue below"}</p>
-                    </div>
-                    <div className="flex items-center justify-center md:justify-start gap-4">
-                      <button 
-                        disabled={!activeTaskId}
-                        onClick={handleToggleTimer}
-                        className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-lg ${isTimerRunning ? 'bg-white text-rose-500 border border-rose-100' : 'bg-blue-600 text-white shadow-blue-500/30'}`}
-                      >
-                        {isTimerRunning ? <Pause size={28} strokeWidth={3} /> : <Play size={28} fill="currentColor" className="ml-1" />}
-                      </button>
-                      <div className="text-3xl font-mono font-black text-slate-700 tracking-tighter">
-                        {formatTime(displaySeconds)}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* QUICK STATS IN TIMER */}
-                  <div className="grid grid-cols-2 gap-3 w-full md:w-auto">
-                    <div className="p-4 bg-white/60 rounded-2xl border border-white text-center min-w-[100px]">
-                       <p className="text-[9px] font-black text-slate-400 uppercase">Assigned</p>
-                       <p className="text-xl font-black">{myTasks.length}</p>
-                    </div>
-                    <div className="p-4 bg-white/60 rounded-2xl border border-white text-center min-w-[100px]">
-                       <p className="text-[9px] font-black text-slate-400 uppercase">Session</p>
-                       <p className="text-xl font-black text-blue-600">{Math.floor(displaySeconds / 60)}<span className="text-[10px] ml-0.5">m</span></p>
-                    </div>
-                  </div>
-                </div>
-              </div>
+      {isManager ? (
+        /* =========================================================================
+           🚀 MANAGER DASHBOARD
+           ========================================================================= */
+        <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+            <StatTile title="Total Projects" value={stats.projectCount} icon={<Folder size={20}/>} color="bg-blue-500" />
+            <StatTile title="Active Tasks" value={stats.taskStats.todo + stats.taskStats.inProgress} icon={<Activity size={20}/>} color="bg-indigo-500" />
+            <StatTile title="Blocked Tasks" value={stats.taskStats.blocked} icon={<ShieldAlert size={20}/>} color="bg-rose-500" />
+            <StatTile title="Tasks Secured" value={stats.taskStats.done} icon={<CheckCircle size={20}/>} color="bg-emerald-500" />
+          </div>
 
-              {/* MISSION QUEUE: 高密度リスト */}
-              <div className="bg-white/20 backdrop-blur-xl border border-white/60 rounded-[40px] p-8 overflow-hidden flex flex-col max-h-[500px]">
-                <div className="flex justify-between items-center mb-6 px-2">
-                  <h3 className="text-lg font-black flex items-center gap-2 italic"><ListChecks className="text-blue-500" size={20}/> Mission Queue</h3>
-                  <span className="text-[10px] font-black text-slate-400 uppercase">{myTasks.length} Operations Pending</span>
-                </div>
-                <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-                  {myTasks.map((t: any) => (
-                    <div 
-                      key={t.id} 
-                      onClick={() => {
-                        if (isTimerRunning) handleToggleTimer();
-                        setActiveTaskId(t.id);
-                        setDisplaySeconds(t.timeElapsed || 0);
-                        localStorage.setItem("nexus_active_task_id", t.id);
-                        localStorage.setItem("nexus_timer_running", "false");
-                      }}
-                      className={`flex items-center justify-between p-4 rounded-2xl border cursor-pointer transition-all ${activeTaskId === t.id ? 'bg-white shadow-lg border-blue-400 ring-2 ring-blue-50' : 'bg-white/40 border-white hover:bg-white/80'}`}
-                    >
-                      <div className="flex items-center gap-4 min-w-0">
-                        <div className={`w-2 h-2 rounded-full shrink-0 ${t.priority === 'HIGH' ? 'bg-rose-500' : t.priority === 'MEDIUM' ? 'bg-amber-500' : 'bg-blue-500'}`} />
-                        <div className="min-w-0">
-                          <h4 className="font-black text-sm text-slate-800 truncate">{t.title}</h4>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{t.projectName}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4 shrink-0">
-                        <div className="text-right">
-                          <p className="text-[10px] font-black text-slate-600">{formatTime(t.timeElapsed)}</p>
-                          <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Logged</p>
-                        </div>
-                        <ArrowRight size={14} className={`text-slate-300 ${activeTaskId === t.id ? 'text-blue-500 translate-x-1' : ''} transition-all`}/>
-                      </div>
-                    </div>
-                  ))}
-                  {myTasks.length === 0 && (
-                    <div className="py-12 text-center bg-white/10 rounded-3xl border-2 border-dashed border-white/20">
-                      <p className="text-slate-400 font-bold text-sm">No missions assigned. Standing by.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-
-          {isManager && (
-            <div className="space-y-6">
-              <div className="bg-white/30 backdrop-blur-3xl border border-white p-8 rounded-[40px] shadow-xl">
-                 <h3 className="text-xl font-black text-slate-900 mb-6 italic">Team Operational Load</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* LEFT COLUMN */}
+            <div className="lg:col-span-7 space-y-6">
+              
+              <div className="bg-white/40 backdrop-blur-2xl border border-white/80 p-8 rounded-[40px] shadow-xl">
+                 <h3 className="text-xl font-black text-slate-900 mb-6 italic flex items-center gap-3"><Users className="text-blue-600"/> Team Active Assignments</h3>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {teamPerformanceData.map((m: any, i: number) => (
-                      <div key={i} className="p-5 bg-white/60 rounded-3xl border border-white shadow-sm">
-                         <div className="flex justify-between items-center mb-3">
-                            <span className="font-black text-sm text-slate-800">{m.name}</span>
-                            <span className="text-[10px] font-black text-indigo-600">{m.done}/{m.total}</span>
+                   {teamDetails.map((user: any, i: number) => (
+                     <div key={i} className="p-5 bg-white/60 rounded-[30px] border border-white shadow-sm flex flex-col h-full">
+                       <div className="flex justify-between items-start mb-4">
+                          <div className="flex items-center gap-3">
+                             <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black text-base shadow-md">
+                                {user.name.charAt(0)}
+                             </div>
+                             <div>
+                                <p className="font-black text-slate-900 text-base leading-none">{user.name}</p>
+                                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-1">{user.totalTasks} Tasks</p>
+                             </div>
+                          </div>
+                       </div>
+                       <div className="flex-1 space-y-2">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 pb-1">Working On:</p>
+                          {user.activeTasks.length > 0 ? user.activeTasks.slice(0, 3).map((t: any) => (
+                            <div key={t.id} className="flex items-start gap-2 group">
+                               <div className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${t.status === 'IN_PROGRESS' ? 'bg-blue-500 animate-pulse' : t.status === 'BLOCKED' ? 'bg-red-500' : 'bg-slate-300'}`} />
+                               <div className="min-w-0">
+                                 <p className="text-[11px] font-bold text-slate-800 truncate leading-tight group-hover:text-blue-600 transition-colors">{t.title}</p>
+                                 <p className="text-[8px] font-bold text-slate-400 truncate">{t.projectName}</p>
+                               </div>
+                            </div>
+                          )) : (
+                            <p className="text-[10px] font-bold text-slate-400 italic">No active tasks.</p>
+                          )}
+                       </div>
+                     </div>
+                   ))}
+                 </div>
+              </div>
+
+              <div className="bg-white/40 backdrop-blur-2xl border border-white/60 p-6 rounded-[32px] shadow-xl flex flex-col max-h-[350px]">
+                 <div className="flex justify-between items-center mb-4 px-2">
+                    <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 uppercase tracking-widest"><TrendingUp size={16} className="text-blue-600"/> Project Portfolio</h3>
+                 </div>
+                 <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                    {projects.map((p: any) => {
+                       const done = p.tasks.filter((t:any) => t.status === "DONE").length;
+                       const total = p.tasks.length;
+                       const progress = total > 0 ? Math.round((done / total) * 100) : 0;
+                       return (
+                         <div key={p.id} className="p-4 bg-white/60 rounded-2xl border border-white flex flex-col gap-2 shadow-sm hover:shadow-md transition-shadow">
+                            <div className="flex justify-between items-center">
+                               <h4 className="font-bold text-xs text-slate-900">{p.name}</h4>
+                               <span className="text-[10px] font-black text-blue-600">{progress}%</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                               <div className="h-full bg-blue-500 rounded-full" style={{width: `${progress}%`}}></div>
+                            </div>
                          </div>
-                         <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-indigo-500 rounded-full" style={{width: m.total > 0 ? `${(m.done/m.total)*100}%` : '0%'}} />
-                         </div>
-                      </div>
+                       );
+                    })}
+                 </div>
+              </div>
+
+              <div className="bg-white/40 backdrop-blur-2xl border border-white/80 p-8 rounded-[40px] shadow-xl">
+                 <h3 className="text-xl font-black text-slate-900 mb-6 italic flex items-center gap-3"><Calendar className="text-indigo-500"/> Deadline Heatmap</h3>
+                 <CalendarHeatmap allTasks={allTasks} />
+              </div>
+            </div>
+
+            {/* RIGHT COLUMN */}
+            <div className="lg:col-span-5 space-y-6">
+              <div className="bg-blue-600 rounded-[32px] p-6 text-white shadow-xl shadow-blue-500/20 relative overflow-hidden">
+                 <div className="absolute top-0 right-0 p-4 opacity-10"><Target size={80}/></div>
+                 <h4 className="text-[9px] font-black uppercase tracking-[0.3em] mb-4">Department Status</h4>
+                 <div className="grid grid-cols-2 gap-4">
+                   <div>
+                     <p className="text-[9px] font-bold uppercase opacity-60 mb-1">Total Active Tasks</p>
+                     <p className="text-3xl font-black italic">{allTasks.filter((t:any) => t.status !== "DONE").length}</p>
+                   </div>
+                   <div>
+                     <p className="text-[9px] font-bold uppercase opacity-60 mb-1">Secured Tasks</p>
+                     <p className="text-3xl font-black italic text-cyan-300">{weeklyDone}</p>
+                   </div>
+                 </div>
+              </div>
+
+              <div className="bg-slate-900 rounded-[32px] p-6 text-white shadow-2xl relative overflow-hidden border-b-4 border-purple-500 flex flex-col max-h-[350px]">
+                 <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={60} /></div>
+                 <div className="relative z-10 flex justify-between items-center mb-4">
+                    <h4 className="text-[9px] font-black uppercase tracking-[0.3em] text-purple-400 flex items-center gap-2">
+                      <Sparkles size={12}/> AI Report Insights
+                    </h4>
+                 </div>
+                 <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar flex-1 z-10">
+                    {mockAiReports.map((report) => (
+                      <Link href="/nippo" key={report.id} className="block p-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-colors group cursor-pointer">
+                        <div className="flex justify-between items-center mb-1">
+                           <span className="text-[11px] font-black text-white">{report.user}</span>
+                           <span className={`text-[7px] font-black uppercase px-2 py-0.5 rounded-full ${report.status === 'Blocked' ? 'bg-rose-500/20 text-rose-300' : 'bg-blue-500/20 text-blue-300'}`}>
+                             {report.status}
+                           </span>
+                        </div>
+                        <p className="text-[10px] text-slate-300 line-clamp-2 leading-snug">{report.summary}</p>
+                      </Link>
                     ))}
                  </div>
               </div>
+
+              <div className="bg-white/40 backdrop-blur-xl border border-white/60 p-6 rounded-[32px] shadow-md flex flex-col max-h-[300px]">
+                <h4 className="text-[10px] font-black text-slate-900 mb-4 uppercase tracking-widest flex items-center gap-2"><AlertCircle size={14} className="text-rose-500"/> Global Deadlines</h4>
+                <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                  {allTasks.filter((t:any) => t.dueDate && t.status !== "DONE").sort((a:any, b:any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((t:any, i:number) => {
+                      const isUrgent = new Date(t.dueDate).getTime() - Date.now() < 86400000 * 2;
+                      return (
+                        <div key={i} className="flex items-center gap-3 group">
+                          <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 shadow-sm ${isUrgent ? 'bg-rose-500 text-white' : 'bg-slate-100 text-slate-800'}`}>
+                            <span className="text-[6px] font-black uppercase opacity-60">{new Date(t.dueDate).toLocaleString('en-us', {month:'short'})}</span>
+                            <span className="text-sm font-black leading-none">{new Date(t.dueDate).getDate()}</span>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-black text-slate-800 truncate leading-tight">{t.title}</p>
+                            <p className="text-[8px] font-bold text-slate-500 truncate uppercase mt-0.5">{t.assignee?.name || "Unassigned"} • {t.projectName}</p>
+                          </div>
+                        </div>
+                      )
+                  })}
+                </div>
+              </div>
+
+              {/* COMPACT ACTIVITY FEED FOR MANAGER */}
+              <ActivityFeed feed={activityFeed} currentUserId={userId} router={router} />
             </div>
-          )}
+          </div>
         </div>
-
-        {/* RIGHT COLUMN: サイドバーパネル */}
-        <div className="lg:col-span-4 space-y-6">
-           
-           {/* PERFORMANCE TILE: コンパクト化 */}
-           <div className="bg-slate-950 rounded-[40px] p-8 text-white shadow-2xl relative overflow-hidden border-b-4 border-cyan-500">
-              <div className="absolute top-0 right-0 p-4 opacity-10"><Target size={60} /></div>
-              <p className="text-[9px] font-black uppercase tracking-[0.3em] text-cyan-400 mb-4">Weekly Output</p>
-              <div className="flex items-baseline gap-2 mb-4">
-                <span className="text-5xl font-black italic">{weeklyGoalPercent}%</span>
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Efficiency</span>
+      ) : (
+        /* =========================================================================
+           🧑‍💻 MEMBER DASHBOARD (Clean, Distraction-Free, No Focus Analytics)
+           ========================================================================= */
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in slide-in-from-bottom-4 duration-500">
+          
+          {/* LEFT COLUMN: Focus Timer & Mission Queue */}
+          <div className="lg:col-span-7 space-y-6">
+            
+            {/* TIMER SECTION */}
+            <div className="bg-white/40 backdrop-blur-2xl border border-white/60 p-8 rounded-[40px] shadow-xl relative overflow-hidden">
+              <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                <div className="flex-1 text-center md:text-left">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Currently Active</span>
+                  <h2 className="text-2xl font-black leading-tight text-slate-800 mt-1">{activeTask ? activeTask.title : "Ready for Mission Selection"}</h2>
+                  <p className="text-xs font-bold text-blue-500 mt-1 mb-6">{activeTask ? activeTask.projectName : "Select from the queue below"}</p>
+                  <div className="flex items-center justify-center md:justify-start gap-5">
+                    <button 
+                      disabled={!activeTaskId}
+                      onClick={handleToggleTimer}
+                      className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-lg ${isTimerRunning ? 'bg-white text-rose-500 border border-rose-100 animate-pulse' : 'bg-gradient-to-tr from-blue-600 to-cyan-500 text-white shadow-blue-500/30 hover:scale-105'}`}
+                    >
+                      {isTimerRunning ? <Pause size={28} strokeWidth={3} /> : <Play size={28} fill="currentColor" className="ml-1" />}
+                    </button>
+                    <div className="text-4xl font-mono font-black text-slate-700 tracking-tighter drop-shadow-md">
+                      {formatTime(displaySeconds)}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-1000" style={{width: `${weeklyGoalPercent}%`}} />
-              </div>
-           </div>
+            </div>
 
-           {/* DEADLINES: 高密度スクロールリスト */}
-           <div className="bg-white/40 backdrop-blur-xl border border-white/60 p-8 rounded-[40px] shadow-md flex flex-col max-h-[400px]">
-              <h4 className="text-xs font-black text-slate-900 mb-6 uppercase tracking-widest flex items-center gap-2"><AlertCircle size={16} className="text-rose-500"/> Critical Deadlines</h4>
-              <div className="overflow-y-auto space-y-4 pr-2 custom-scrollbar">
-                {allTasks.filter((t:any) => t.dueDate && t.status !== "DONE")
-                  .sort((a:any, b:any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
-                  .map((t:any, i:number) => {
-                    const isUrgent = new Date(t.dueDate).getTime() - Date.now() < 86400000 * 2;
-                    return (
-                      <div key={i} className="flex items-center gap-4 group">
-                        <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 shadow-sm ${isUrgent ? 'bg-rose-500 text-white' : 'bg-slate-100 text-slate-800'}`}>
-                          <span className="text-[7px] font-black uppercase opacity-60">{new Date(t.dueDate).toLocaleString('en-us', {month:'short'})}</span>
-                          <span className="text-sm font-black leading-none">{new Date(t.dueDate).getDate()}</span>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-black text-slate-800 truncate leading-tight">{t.title}</p>
-                          <p className="text-[9px] font-bold text-slate-400 truncate uppercase mt-0.5">{t.projectName}</p>
-                        </div>
+            {/* MISSION QUEUE */}
+            <div className="bg-white/20 backdrop-blur-xl border border-white/60 rounded-[32px] p-6 overflow-hidden flex flex-col max-h-[400px] shadow-lg">
+              <div className="flex justify-between items-center mb-4 px-2">
+                <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-widest"><ListChecks className="text-blue-500" size={16}/> Mission Queue</h3>
+                <span className="text-[9px] font-black text-slate-400 uppercase">{myTasks.length} Pending</span>
+              </div>
+              <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                {myTasks.map((t: any) => (
+                  <div 
+                    key={t.id} 
+                    onClick={() => selectTask(t)}
+                    className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${activeTaskId === t.id ? 'bg-white shadow-md border-blue-300 ring-1 ring-blue-50' : 'bg-white/50 border-white/80 hover:bg-white'}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-2 h-2 rounded-full shrink-0 shadow-sm ${t.priority === 'HIGH' ? 'bg-rose-500' : t.priority === 'MEDIUM' ? 'bg-amber-500' : 'bg-blue-500'}`} />
+                      <div className="min-w-0">
+                        <h4 className="font-black text-xs text-slate-800 truncate">{t.title}</h4>
+                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter truncate">{t.projectName}</p>
                       </div>
-                    )
-                })}
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="text-right">
+                        <p className="text-[10px] font-black text-slate-600">{formatTime(t.timeElapsed)}</p>
+                      </div>
+                      <ArrowRight size={12} className={`text-slate-300 ${activeTaskId === t.id ? 'text-blue-500' : ''}`}/>
+                    </div>
+                  </div>
+                ))}
+                {myTasks.length === 0 && (
+                  <div className="py-8 text-center bg-white/10 rounded-2xl border-2 border-dashed border-white/20">
+                    <p className="text-slate-400 font-bold text-[11px]">No missions assigned. Standing by.</p>
+                  </div>
+                )}
               </div>
-           </div>
+            </div>
+          </div>
 
-           {/* SUMMARY TILE */}
-           <div className="bg-blue-600 rounded-[32px] p-6 text-white shadow-xl shadow-blue-500/20">
-              <h4 className="text-[9px] font-black uppercase tracking-[0.2em] mb-4">Department Status</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-[8px] font-bold uppercase opacity-60">Total Active</p>
-                  <p className="text-xl font-black italic">{allTasks.filter((t:any) => t.status !== "DONE").length}</p>
+          {/* RIGHT COLUMN: Collab Hub, Deadlines, and Compact Activity Feed */}
+          <div className="lg:col-span-5 space-y-6">
+             
+             {/* The Collaboration Hub (Feedback/Mentions) */}
+             <div className="bg-gradient-to-br from-indigo-900 to-slate-900 rounded-[32px] p-6 text-white shadow-xl relative overflow-hidden flex flex-col max-h-[300px]">
+                <div className="absolute top-0 right-0 p-4 opacity-10"><MessageSquare size={60} /></div>
+                <div className="relative z-10 flex flex-col h-full">
+                   <h4 className="text-[9px] font-black mb-4 uppercase tracking-[0.3em] text-indigo-400 flex items-center gap-2">
+                     <Sparkles size={12}/> The Collaboration Hub
+                   </h4>
+                   <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar flex-1">
+                     {myRecentFeedback.length > 0 ? myRecentFeedback.map((fb, i) => (
+                        <div key={i} className="p-3 bg-white/10 border border-white/10 rounded-xl hover:bg-white/20 transition-colors">
+                           <p className="text-[11px] font-medium text-slate-200 leading-snug">
+                             <span className="font-black text-white">{fb.data.user?.name || "Team"}</span>
+                             {fb.type === 'reaction' ? ` reacted ${fb.data.emoji} to ` : ` commented on `}
+                             <span className="font-bold text-indigo-300">"{fb.task.title}"</span>
+                           </p>
+                           {fb.type === 'comment' && (
+                              <p className="text-[10px] italic text-slate-400 mt-1 bg-black/30 p-2 rounded-lg border-l-2 border-indigo-500">"{fb.data.text}"</p>
+                           )}
+                        </div>
+                     )) : (
+                        <p className="text-[10px] text-slate-400 font-bold italic mt-2">No recent feedback. Keep it up!</p>
+                     )}
+                   </div>
                 </div>
-                <div>
-                  <p className="text-[8px] font-bold uppercase opacity-60">Secured</p>
-                  <p className="text-xl font-black italic">{weeklyDone}</p>
-                </div>
-              </div>
-           </div>
+             </div>
 
+             {/* Personal Deadlines */}
+             <div className="bg-white/40 backdrop-blur-xl border border-white/60 p-6 rounded-[32px] shadow-md flex flex-col max-h-[300px]">
+                <h4 className="text-[10px] font-black text-slate-900 mb-4 uppercase tracking-widest flex items-center gap-2"><AlertCircle size={14} className="text-rose-500"/> My Deadlines</h4>
+                <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                  {myTasks.filter((t:any) => t.dueDate).sort((a:any, b:any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((t:any, i:number) => {
+                      const isUrgent = new Date(t.dueDate).getTime() - Date.now() < 86400000 * 2;
+                      return (
+                        <div key={i} className="flex items-center gap-3 group">
+                          <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 shadow-sm ${isUrgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-100 text-slate-800'}`}>
+                            <span className="text-[7px] font-black uppercase opacity-60">{new Date(t.dueDate).toLocaleString('en-us', {month:'short'})}</span>
+                            <span className="text-sm font-black leading-none">{new Date(t.dueDate).getDate()}</span>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-black text-slate-800 truncate leading-tight">{t.title}</p>
+                            <p className="text-[9px] font-bold text-slate-400 truncate uppercase mt-0.5">{t.projectName}</p>
+                          </div>
+                        </div>
+                      )
+                  })}
+                  {myTasks.filter((t:any) => t.dueDate).length === 0 && (
+                    <p className="text-[10px] text-slate-500 font-bold italic">No upcoming deadlines assigned to you.</p>
+                  )}
+                </div>
+             </div>
+
+             {/* COMPACT ACTIVITY FEED FOR MEMBER */}
+             <ActivityFeed feed={activityFeed} currentUserId={userId} router={router} />
+
+          </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------
+// COMPONENT: Compact & Glassy Activity Feed
+// ---------------------------------------------------------
+function ActivityFeed({ feed, currentUserId, router }: any) {
+  return (
+    <div className="bg-white/30 backdrop-blur-2xl border border-white/60 p-6 rounded-[32px] shadow-lg flex flex-col max-h-[350px]">
+      <h4 className="text-[10px] font-black text-slate-900 mb-4 uppercase tracking-widest flex items-center gap-2">
+         <History size={14} className="text-blue-500"/> Team Pulse
+      </h4>
+      <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar flex-1">
+         {feed.map((t: any, i: number) => (
+           <InteractiveFeedItem key={i} task={t} currentUserId={currentUserId} router={router} />
+         ))}
       </div>
     </div>
   );
 }
 
+// ---------------------------------------------------------
+// COMPONENT: Interactive Feed Item (Extremely Compact & Glassy)
+// ---------------------------------------------------------
+function InteractiveFeedItem({ task, currentUserId, router }: any) {
+  const [showCommentBox, setShowCommentBox] = useState(false);
+  const [commentText, setCommentText] = useState("");
+
+  const handleReaction = async (emoji: string) => {
+    await toggleTaskReaction(task.id, emoji);
+    router.refresh();
+  };
+
+  const handleComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!commentText.trim()) return;
+    await addTaskComment(task.id, commentText);
+    setCommentText("");
+    setShowCommentBox(false);
+    router.refresh();
+  };
+
+  const reactionsMap = task.reactions?.reduce((acc: any, r: any) => {
+    acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+    return acc;
+  }, {}) || {};
+
+  return (
+    <div className="relative group bg-white/40 hover:bg-white/60 backdrop-blur-md p-3 rounded-[20px] border border-white/50 shadow-sm transition-all duration-300 flex flex-col">
+       
+       {/* Sleek Hover Action Bar */}
+       <div className="absolute -top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 bg-slate-900/90 backdrop-blur-md p-1 rounded-full shadow-lg z-10 border border-white/20">
+          <button onClick={() => handleReaction('🔥')} className="hover:scale-125 transition-transform text-[10px] px-1">🔥</button>
+          <button onClick={() => handleReaction('👍')} className="hover:scale-125 transition-transform text-[10px] px-1">👍</button>
+          <button onClick={() => handleReaction('👀')} className="hover:scale-125 transition-transform text-[10px] px-1">👀</button>
+          <div className="w-[1px] bg-white/20 mx-1"></div>
+          <button onClick={() => setShowCommentBox(!showCommentBox)} className="text-white/80 hover:text-white px-1.5 flex items-center justify-center">
+             <MessageSquare size={10}/>
+          </button>
+       </div>
+
+       <div className="flex gap-2">
+          <div className="mt-0.5 shrink-0">
+             <div className={`w-5 h-5 rounded-full flex items-center justify-center text-white shadow-inner ${task.status === 'DONE' ? 'bg-emerald-500' : task.status === 'BLOCKED' ? 'bg-rose-500' : 'bg-blue-500'}`}>
+                {task.status === 'DONE' ? <CheckCircle size={8}/> : task.status === 'BLOCKED' ? <ShieldAlert size={8}/> : <Activity size={8}/>}
+             </div>
+          </div>
+          <div className="min-w-0 flex-1">
+             <p className="text-[10px] font-medium text-slate-800 leading-tight">
+                <span className="font-black text-blue-700">{task.assignee?.name || "Unassigned"}</span> 
+                <span className="text-slate-500">{task.status === 'DONE' ? ' completed ' : task.status === 'BLOCKED' ? ' blocked ' : ' updated '}</span>
+                <span className="font-bold text-slate-900">"{task.title}"</span>
+             </p>
+             <p className="text-[8px] font-bold text-slate-400 mt-0.5 uppercase tracking-widest truncate">{task.projectName}</p>
+             
+             {/* Reactions & Comments Count */}
+             {(Object.keys(reactionsMap).length > 0 || task.comments?.length > 0) && (
+               <div className="flex flex-wrap gap-1.5 mt-2">
+                  {Object.entries(reactionsMap).map(([emoji, count]) => (
+                    <button key={emoji} onClick={() => handleReaction(emoji)} className="flex items-center gap-1 bg-white/60 border border-white/40 px-1.5 py-0.5 rounded-full text-[9px] font-black hover:bg-white transition-colors shadow-sm">
+                       {emoji} <span className="text-slate-600">{count as number}</span>
+                    </button>
+                  ))}
+                  {task.comments?.length > 0 && (
+                    <span className="flex items-center gap-1 text-[9px] font-bold text-slate-500 bg-white/40 px-1.5 py-0.5 rounded-full border border-white/20">
+                      <MessageSquare size={8}/> {task.comments.length}
+                    </span>
+                  )}
+               </div>
+             )}
+
+             {/* Latest Comment Display */}
+             {task.comments?.length > 0 && !showCommentBox && (
+                <div className="mt-2 bg-white/40 p-2 rounded-lg border border-white/50 border-l-2 border-l-blue-400">
+                  <p className="text-[9px] font-black text-slate-700">{task.comments[task.comments.length - 1].user?.name}</p>
+                  <p className="text-[9px] text-slate-600 mt-0.5 leading-snug truncate">{task.comments[task.comments.length - 1].text}</p>
+                </div>
+             )}
+
+             {/* Inline Comment Input Box */}
+             {showCommentBox && (
+                <form onSubmit={handleComment} className="mt-2 flex gap-2 animate-in fade-in zoom-in-95 duration-200">
+                   <input 
+                     type="text" 
+                     autoFocus
+                     value={commentText} 
+                     onChange={(e) => setCommentText(e.target.value)} 
+                     placeholder="Reply..." 
+                     className="flex-1 bg-white/60 border border-white/80 rounded-lg px-2 py-1 text-[10px] font-bold outline-none focus:ring-1 focus:ring-blue-400 shadow-inner text-slate-800"
+                   />
+                   <button type="submit" className="w-5 h-5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center transition-colors shadow-sm">
+                      <Send size={10}/>
+                   </button>
+                </form>
+             )}
+          </div>
+       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------
+// COMPONENT: StatTile
+// ---------------------------------------------------------
 function StatTile({ title, value, icon, color }: any) {
   return (
-    <div className="bg-white/30 backdrop-blur-xl rounded-[32px] p-6 border border-white shadow-md hover:shadow-lg transition-all group overflow-hidden">
-      <div className={`w-10 h-10 bg-gradient-to-br ${color} rounded-xl flex items-center justify-center text-white shadow-lg mb-4 group-hover:scale-110 transition-transform`}>
+    <div className="bg-white/30 backdrop-blur-xl rounded-[32px] p-5 border border-white shadow-md hover:shadow-lg transition-all group overflow-hidden flex items-center justify-between">
+      <div>
+         <p className="text-slate-500 font-black text-[9px] uppercase tracking-widest mb-1">{title}</p>
+         <h2 className="text-2xl font-black text-slate-800 italic">{value}</h2>
+      </div>
+      <div className={`w-10 h-10 ${color} rounded-xl flex items-center justify-center text-white shadow-lg group-hover:scale-110 group-hover:rotate-6 transition-transform`}>
         {icon}
       </div>
-      <p className="text-slate-400 font-black text-[9px] uppercase tracking-widest mb-1">{title}</p>
-      <h2 className="text-3xl font-black text-slate-800 italic">{value}</h2>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------
+// COMPONENT: CalendarHeatmap (Manager Only)
+// ---------------------------------------------------------
+function CalendarHeatmap({ allTasks }: { allTasks: any[] }) {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayIndex = new Date(year, month, 1).getDay();
+  
+  const days = [];
+  for (let i = 0; i < firstDayIndex; i++) days.push(null);
+  for (let i = 1; i <= daysInMonth; i++) {
+    const y = year;
+    const m = String(month + 1).padStart(2, '0');
+    const d = String(i).padStart(2, '0');
+    days.push(`${y}-${m}-${d}`);
+  }
+
+  const getTasksForDate = (dateStr: string) => {
+    return allTasks.filter(t => {
+      if (!t.dueDate) return false;
+      const d = new Date(t.dueDate);
+      const ty = d.getFullYear();
+      const tm = String(d.getMonth() + 1).padStart(2, '0');
+      const td = String(d.getDate()).padStart(2, '0');
+      return `${ty}-${tm}-${td}` === dateStr;
+    });
+  };
+
+  return (
+    <div className="w-full">
+      <div className="grid grid-cols-7 gap-2 mb-2">
+        {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
+          <div key={d} className="text-center text-[9px] font-black text-slate-400 uppercase tracking-widest">{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-2">
+        {days.map((dateStr, i) => {
+          if (!dateStr) return <div key={`empty-${i}`} className="h-8 rounded-xl" />;
+          
+          const dayTasks = getTasksForDate(dateStr);
+          const count = dayTasks.length;
+          
+          let bgClass = "bg-slate-100/50 hover:bg-slate-200 border-white/50";
+          let textClass = "text-slate-400";
+          if (count === 1) { bgClass = "bg-blue-200 border-blue-300 shadow-sm"; textClass = "text-blue-800"; }
+          if (count === 2) { bgClass = "bg-blue-400 border-blue-500 shadow-md"; textClass = "text-white"; }
+          if (count >= 3) { bgClass = "bg-indigo-600 border-indigo-700 shadow-lg"; textClass = "text-white"; }
+          
+          return (
+            <div key={dateStr} className={`relative group h-8 rounded-xl border flex items-center justify-center cursor-help transition-all duration-300 hover:scale-110 hover:z-20 ${bgClass}`}>
+              <span className={`text-[9px] font-black ${textClass}`}>{parseInt(dateStr.split('-')[2])}</span>
+              
+              {count > 0 && (
+                <div className="absolute hidden group-hover:flex flex-col bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-slate-900/95 backdrop-blur-xl border border-white/10 text-white p-3 rounded-2xl shadow-2xl z-50">
+                  <span className="font-black text-[9px] text-cyan-400 mb-2 border-b border-white/10 pb-1 uppercase tracking-widest">{dateStr}</span>
+                  <div className="space-y-2">
+                    {dayTasks.map((t: any) => (
+                      <div key={t.id} className="leading-tight">
+                        <span className="font-bold text-[10px] block mb-0.5 truncate">{t.title}</span>
+                        <div className="flex justify-between items-center text-[8px] text-slate-400">
+                           <span className="truncate mr-2">{t.projectName}</span>
+                           <span className="font-black text-blue-300 shrink-0">{t.assignee?.name || "Unassigned"}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900/95"></div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
