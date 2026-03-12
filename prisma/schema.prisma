@@ -8,26 +8,27 @@ datasource db {
 }
 
 model User {
-  id              String         @id @default(cuid())
-  name            String?
-  email           String?        @unique
-  emailVerified   DateTime?
-  image           String?
-  password_hash   String?
-  role            String         @default("MEMBER")
-  createdAt       DateTime       @default(now())
-  joinedAt      DateTime  @default(now())
-  department      String?
-  accounts        Account[]
-  comments        Comment[]
-  managedProjects Project[]      @relation("ProjectManager")
-  reports         Report[]
-  sessions        Session[]
-  tasks           Task[]
-  taskComments    TaskComment[]
-  taskReactions   TaskReaction[]
-  projects        Project[]      @relation("ProjectMembers")
-updatedAt     DateTime  @default(now()) @updatedAt
+  id                   String                @id @default(cuid())
+  name                 String?
+  email                String?               @unique
+  emailVerified        DateTime?
+  image                String?
+  password_hash        String?
+  role                 String                @default("MEMBER")
+  createdAt            DateTime              @default(now())
+  joinedAt             DateTime              @default(now())
+  department           String?
+  accounts             Account[]
+  comments             Comment[]
+  managedProjects      Project[]             @relation("ProjectManager")
+  reports              Report[]
+  sessions             Session[]
+  tasks                Task[]
+  taskComments         TaskComment[]
+  taskReactions        TaskReaction[]
+  projects             Project[]             @relation("ProjectMembers")
+  updatedAt            DateTime              @default(now()) @updatedAt
+  taskCommentReactions TaskCommentReaction[]
 }
 
 model Account {
@@ -94,6 +95,7 @@ model Report {
   tomorrow_plan  String
   userId         String
   targetDate     DateTime  @default(now())
+  status         String    @default("PENDING")
   createdAt      DateTime  @default(now())
   comments       Comment[]
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -110,13 +112,26 @@ model Comment {
 }
 
 model TaskComment {
-  id        String   @id @default(cuid())
+  id        String                @id @default(cuid())
   text      String
   taskId    String
   userId    String
-  createdAt DateTime @default(now())
-  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime              @default(now())
+  task      Task                  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reactions TaskCommentReaction[]
+}
+
+model TaskCommentReaction {
+  id        String      @id @default(cuid())
+  emoji     String
+  commentId String
+  userId    String
+  createdAt DateTime    @default(now())
+  comment   TaskComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId, emoji])
 }
 
 model TaskReaction {

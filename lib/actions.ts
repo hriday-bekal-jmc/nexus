@@ -92,9 +92,20 @@ export async function updateProject(formData: FormData) {
       }
     });
 
+    // 🌟 修正ポイント: 削除処理（deleteMany）を「新規作成」よりも先に実行する
+    // 現在画面に残っているタスクのIDだけを抽出
+    const currentTaskIds = tasks.filter((t:any) => t.id).map((t:any) => t.id);
+    await prisma.task.deleteMany({
+      where: {
+         projectId: id,
+         id: { notIn: currentTaskIds } // 画面にないタスクをデータベースから削除
+      }
+    });
+
+    // その後に更新と新規作成を行う
     for (const t of tasks) {
       if (t.id) {
-         // タスク単独の更新時は assigneeId がそのまま使える
+         // 既存タスクの更新
          await prisma.task.update({
             where: { id: t.id },
             data: {
@@ -107,7 +118,7 @@ export async function updateProject(formData: FormData) {
             }
          });
       } else {
-         // タスク単独の作成時も assigneeId がそのまま使える
+         // 新規タスクの作成
          await prisma.task.create({
             data: {
                projectId: id,
@@ -122,14 +133,6 @@ export async function updateProject(formData: FormData) {
       }
     }
     
-    const currentTaskIds = tasks.filter((t:any) => t.id).map((t:any) => t.id);
-    await prisma.task.deleteMany({
-      where: {
-         projectId: id,
-         id: { notIn: currentTaskIds }
-      }
-    });
-
     revalidatePath("/projects");
     revalidatePath("/");
     return { success: true };
@@ -409,5 +412,354 @@ export async function generateDashboardInsights(tasksData: string) {
   } catch (error) {
     console.error("Dashboard AI Error:", error);
     return [];
+  }
+}
+
+// 🤖 9. AI SUBTASK GENERATION (DBには保存せずテキストを返すだけ)
+export async function generateSubtasks(title: string, currentDescription: string | null) {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return { error: "API key is missing" };
+
+    const { GoogleGenerativeAI } = await import("@google/generative-ai");
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const prompt = `
+      あなたは優秀なプロジェクトマネージャーです。
+      以下のタスクを達成するための、具体的なサブタスク（アクションプラン）を3〜5個提案してください。
+      出力はシンプルにマークダウンのチェックリスト形式（- [ ] サブタスク名）のみを出力してください。挨拶や解説は一切不要です。
+
+      タスク名: ${title}
+      現在の詳細: ${currentDescription || "なし"}
+    `;
+
+    const result = await model.generateContent(prompt);
+    const generatedList = result.response.text();
+    
+    // 生成されたテキストをフロントエンドに返すだけ
+    return { success: true, text: generatedList };
+  } catch (error) {
+    console.error("AI Subtask Error:", error);
+    return { error: "サブタスクの生成に失敗しました。" };
+  }
+}
+
+// 📝 10. タスクの詳細(description)を保存するアクション
+export async function updateTaskDescription(taskId: string, description: string) {
+  try {
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { description }
+    });
+    revalidatePath("/tasks");
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    return { error: "詳細の保存に失敗しました。" };
+  }
+}
+
+// 🚨 11. BLOCKER REPORTING (AIオプション化 ＋ 🔔Google Chat通知)
+export async function reportBlocker(taskId: string, title: string, reason: string, askAI: boolean) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return { error: "Unauthorized" };
+    const userId = (session.user as any).id;
+
+    let aiAdvice = "";
+
+    // 🌟 AIの助けを求めた場合(askAI === true)のみGeminiを呼び出す
+    if (askAI) {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (apiKey) {
+        const { GoogleGenerativeAI } = await import("@google/generative-ai");
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+        const prompt = `
+          あなたはシニアエンジニアであり、優しいプロジェクトマネージャーです。
+          チームメンバーが以下のタスクで障害（ブロック）に直面しています。
+          タスク名: ${title}
+          ブロックの理由: ${reason}
+          このメンバーに対して、解決のための具体的なヒントを3つ程度簡潔にアドバイスしてください。
+        `;
+        const result = await model.generateContent(prompt);
+        aiAdvice = result.response.text();
+      }
+    }
+
+    // 1. タスクのステータスをBLOCKEDに更新
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { status: "BLOCKED" }
+    });
+
+    // 2. メンバーの「ブロック理由」をコメントとして記録
+    await prisma.taskComment.create({
+      data: { taskId, userId, text: `🚨 【障害報告】\n${reason}` }
+    });
+
+    // 3. AIからの「アドバイス」がある場合のみシステムコメントとして記録
+    if (askAI && aiAdvice) {
+      await prisma.taskComment.create({
+        data: { taskId, userId, text: `🤖 【AI アシスト】\n${aiAdvice}` }
+      });
+    }
+
+    // 4. Google Chat への Webhook 通知送信 (必ず送信されます)
+    const webhookUrl = process.env.GOOGLE_CHAT_WEBHOOK_URL;
+    if (webhookUrl && webhookUrl.startsWith("http")) {
+      const currentUser = await prisma.user.findUnique({ where: { id: userId } });
+      const userName = currentUser?.name || "メンバー";
+
+      // AIアドバイスがあれば通知にも追記、なければ理由だけ
+      const aiText = (askAI && aiAdvice) ? `\n\n*🤖 AIの初期アドバイス:*\n${aiAdvice}` : "";
+      
+      const chatMessage = {
+        text: `*🚨 タスクがブロックされました！*\n\n*🙋 担当者:* ${userName}\n*📝 タスク:* ${title}\n*⚠️ 理由:* ${reason}${aiText}\n\n<${process.env.NEXTAUTH_URL}/tasks|👉 Nexusシステムで確認する>`
+      };
+
+      try {
+        await fetch(webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(chatMessage),
+        });
+      } catch (webhookError) {
+        console.error("Webhook Error:", webhookError);
+      }
+    }
+
+    revalidatePath("/tasks");
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Blocker Error:", error);
+    return { error: "ブロック報告に失敗しました。" };
+  }
+}
+
+// 🗑️ 12. DELETE TASK COMMENT (コメントの削除 - マネージャー特権追加)
+export async function deleteTaskComment(commentId: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return { error: "Unauthorized" };
+    
+    const userId = (session.user as any).id;
+    const userRole = (session.user as any).role; // 🌟 ユーザーの権限を取得
+
+    // 削除しようとしているコメントを取得
+    const comment = await prisma.taskComment.findUnique({ where: { id: commentId } });
+    if (!comment) return { error: "コメントが見つかりません" };
+
+    // 🌟 「自分のコメント」または「マネージャー」である場合のみ削除を許可
+    if (comment.userId !== userId && userRole !== "MANAGER") {
+      return { error: "他の人のコメントを削除する権限がありません" };
+    }
+
+    await prisma.taskComment.delete({ where: { id: commentId } });
+    
+    revalidatePath("/tasks");
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Delete Comment Error:", error);
+    return { error: "コメントの削除に失敗しました。" };
+  }
+}
+
+// 👍 13. TOGGLE COMMENT REACTION (個別のコメントへのリアクション)
+export async function toggleCommentReaction(commentId: string, emoji: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return { error: "Unauthorized" };
+    const userId = (session.user as any).id;
+
+    const existing = await prisma.taskCommentReaction.findUnique({
+      where: { commentId_userId_emoji: { commentId, userId, emoji } }
+    });
+
+    if (existing) {
+      await prisma.taskCommentReaction.delete({ where: { id: existing.id } });
+    } else {
+      await prisma.taskCommentReaction.create({ data: { commentId, userId, emoji } });
+    }
+    
+    revalidatePath("/tasks");
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    return { error: "リアクションの更新に失敗しました" };
+  }
+}
+
+// 📝 14. GENERATE DAILY REPORT DRAFT (賢いAIによる日報自動生成)
+export async function generateDailyReportDraft() {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return { error: "Unauthorized" };
+    const userId = (session.user as any).id;
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    // 🌟 改善1: 今日更新・完了したタスク（今日の実績用）
+    const recentTasks = await prisma.task.findMany({
+      where: {
+        assigneeId: userId,
+        updatedAt: { gte: todayStart }
+      }
+    });
+
+    // 🌟 改善2: まだ終わっていない残りのタスクを「期限順・優先度順」で取得（明日の予定用）
+    const pendingTasks = await prisma.task.findMany({
+      where: {
+        assigneeId: userId,
+        status: { not: "DONE" }
+      },
+      orderBy: [
+        { dueDate: 'asc' },  // 期限が近い順
+        { priority: 'desc' } // 優先度が高い順
+      ]
+    });
+
+    if (recentTasks.length === 0 && pendingTasks.length === 0) {
+      return { text: "タスクが見つかりませんでした。手動で入力してください。" };
+    }
+
+    const achievedList = recentTasks.map(t => `- ${t.title} (${t.status})`).join("\n") || "今日の更新タスクなし";
+    const pendingList = pendingTasks.map(t => `- ${t.title} (優先度: ${t.priority}${t.dueDate ? `, 期限: ${new Date(t.dueDate).toLocaleDateString('ja-JP')}` : ''})`).join("\n") || "残タスクなし";
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return { error: "API Key is missing" };
+
+    const { GoogleGenerativeAI } = await import("@google/generative-ai");
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    // 🌟 改善3: AIに「残りのタスク」を渡し、明日の予定をそこから選ばせる
+    const prompt = `
+      あなたは優秀なアシスタントです。ユーザーの実際のタスク状況をもとに、日報の叩き台を作成してください。
+      
+      【今日更新・完了したタスク】
+      ${achievedList}
+      
+      【現在残っているタスク（優先度・期限順）】
+      ${pendingList}
+      
+      ルール：
+      1. "achieved_tasks"（今日の実績）は、【今日更新・完了したタスク】をもとに箇条書きでまとめてください。
+      2. "tomorrow_plan"（明日の予定）は、【現在残っているタスク】の中から、期限が近いものや優先度が高いものを最大3〜4つピックアップして箇条書きで作成してください。（もし残タスクがなければ、適宜提案してください）
+      3. 以下のJSONフォーマットで返してください（挨拶やマークダウン修飾子は不要）:
+      {
+        "achieved_tasks": "今日の実績のテキスト",
+        "tomorrow_plan": "明日の予定のテキスト"
+      }
+    `;
+
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text().replace(/```json|```/g, "").trim();
+    const draft = JSON.parse(responseText);
+
+    return { success: true, draft };
+  } catch (error) {
+    console.error("AI Draft Error:", error);
+    return { error: "AIドラフトの生成に失敗しました。" };
+  }
+}
+
+// 💾 15. SUBMIT DAILY REPORT (日報の保存)
+export async function submitDailyReport(achievedTasks: string, tomorrowPlan: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return { error: "Unauthorized" };
+    const userId = (session.user as any).id;
+
+    await prisma.report.create({
+      data: {
+        achieved_tasks: achievedTasks,
+        tomorrow_plan: tomorrowPlan,
+        userId: userId
+      }
+    });
+    
+    revalidatePath("/nippo");
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    return { error: "日報の送信に失敗しました" };
+  }
+}
+
+// 💬 16. ADD REPORT COMMENT (日報へのコメント)
+export async function addReportComment(reportId: string, content: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return { error: "Unauthorized" };
+    const userId = (session.user as any).id;
+
+    await prisma.comment.create({
+      data: { content, reportId, userId }
+    });
+    
+    revalidatePath("/nippo");
+    return { success: true };
+  } catch (error) {
+    return { error: "コメントの送信に失敗しました" };
+  }
+}
+
+// ✅ 17. UPDATE REPORT STATUS (日報の承認・修正要求)
+export async function updateReportStatus(reportId: string, status: "APPROVED" | "REVISION") {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return { error: "Unauthorized" };
+    
+    // マネージャー権限の確認
+    const userRole = (session.user as any).role;
+    if (userRole !== "MANAGER") {
+      return { error: "この操作はマネージャーのみ可能です" };
+    }
+
+    await prisma.report.update({
+      where: { id: reportId },
+      data: { status }
+    });
+    
+    revalidatePath("/nippo");
+    return { success: true };
+  } catch (error) {
+    return { error: "ステータスの更新に失敗しました" };
+  }
+}
+
+// ✏️ 18. EDIT DAILY REPORT (日報の編集・再提出)
+export async function editDailyReport(reportId: string, achievedTasks: string, tomorrowPlan: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return { error: "Unauthorized" };
+    const userId = (session.user as any).id;
+
+    // 権限チェック（自分のレポートか確認）
+    const existing = await prisma.report.findUnique({ where: { id: reportId } });
+    if (!existing || existing.userId !== userId) {
+      return { error: "編集権限がありません" };
+    }
+
+    // 更新して、ステータスを「確認待ち(PENDING)」に戻す
+    await prisma.report.update({
+      where: { id: reportId },
+      data: {
+        achieved_tasks: achievedTasks,
+        tomorrow_plan: tomorrowPlan,
+        status: "PENDING", 
+      }
+    });
+
+    revalidatePath("/nippo");
+    return { success: true };
+  } catch (error) {
+    return { error: "日報の更新に失敗しました" };
   }
 }

@@ -21,6 +21,13 @@ export default async function TasksPage() {
         include: {
           assignee: true,
           project: true,
+          comments: { 
+            include: { 
+              user: true,
+              reactions: { include: { user: true } } 
+            }, 
+            orderBy: { createdAt: 'asc' } 
+          },
         },
         orderBy: { updatedAt: 'desc' }
       }

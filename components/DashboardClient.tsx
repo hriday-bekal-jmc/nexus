@@ -17,16 +17,15 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
   const router = useRouter();
   const isManager = userRole === "MANAGER";
 
-  // ==========================================
-  // ⚙️ DATA PROCESSING (Shared & Specific)
-  // ==========================================
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => setIsMounted(true), []);
+
   const allTasks = useMemo(() => projects.flatMap((p: any) => p.tasks.map((t: any) => ({ ...t, projectName: p.name }))), [projects]);
   const myTasks = useMemo(() => allTasks.filter((t: any) => t.assigneeId === userId && t.status !== "DONE"), [allTasks, userId]);
   
   const weeklyDone = allTasks.filter((t:any) => t.status === "DONE").length;
   const weeklyTotal = allTasks.length;
 
-  // Urgent Action Center (Member)
   const urgentStats = useMemo(() => {
     const today = new Date(); today.setHours(0,0,0,0);
     return {
@@ -36,7 +35,6 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
     };
   }, [myTasks]);
 
-  // Collaboration Hub Feedback (Member)
   const myRecentFeedback = useMemo(() => {
     const feedback: any[] = [];
     myTasks.forEach((t: any) => {
@@ -50,7 +48,6 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
     return feedback.sort((a, b) => b.time.getTime() - a.time.getTime()).slice(0, 5);
   }, [myTasks, userId]);
 
-  // Team Active Assignments (Manager)
   const teamDetails = useMemo(() => {
     const usersMap = new Map();
     projects.forEach((p: any) => {
@@ -68,45 +65,25 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
     return Array.from(usersMap.values());
   }, [projects, allTasks]);
 
-  const velocityData = useMemo(() => {
-    return projects.map((p: any) => {
-      const total = p.tasks.length;
-      const completed = p.tasks.filter((t: any) => t.status === "DONE").length;
-      return { name: p.name, rate: total > 0 ? Math.round((completed / total) * 100) : 0 };
-    });
-  }, [projects]);
-
-  // Global Activity Feed (Shared)
   const activityFeed = useMemo(() => {
     return [...allTasks].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 15);
   }, [allTasks]);
 
-  // ==========================================
-  // 🤖 AI DASHBOARD INSIGHTS LOGIC
-  // ==========================================
   const [aiReports, setAiReports] = useState<any[]>([]);
   const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
 
   const handleGenerateInsights = async () => {
     setIsGeneratingInsights(true);
-    // 直近15件のタスクをAIに送信して分析させる
     const recentTasksForAI = allTasks.slice(0, 15).map((t: any) => ({
       title: t.title,
       status: t.status,
       assignee: t.assignee?.name || "未割当"
     }));
-
     const generatedReports = await generateDashboardInsights(JSON.stringify(recentTasksForAI));
-    
-    if (generatedReports && generatedReports.length > 0) {
-      setAiReports(generatedReports);
-    }
+    if (generatedReports && generatedReports.length > 0) setAiReports(generatedReports);
     setIsGeneratingInsights(false);
   };
 
-  // ==========================================
-  // ⏱️ PERSISTENT TIMER LOGIC
-  // ==========================================
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [displaySeconds, setDisplaySeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
@@ -171,10 +148,17 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
 
   const activeTask = allTasks.find((t: any) => t.id === activeTaskId);
 
+  if (!isMounted) {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center">
+        <div className="animate-pulse text-blue-500 font-black tracking-widest text-xl">LOADING WORKSPACE...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto pb-24 space-y-6 animate-in fade-in duration-700 text-slate-900">
       
-      {/* 🧊 HEADER */}
       <div className="flex justify-between items-center px-8 py-6 bg-white/30 backdrop-blur-xl border border-white/40 rounded-[32px] shadow-lg">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 bg-gradient-to-tr from-blue-600 to-cyan-500 rounded-xl flex items-center justify-center text-white shadow-lg">
@@ -186,7 +170,6 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
           </div>
         </div>
         
-        {/* Urgent Action Center (Member) */}
         {!isManager && (
           <div className="hidden md:flex gap-3">
              <div className="px-4 py-2 bg-rose-50 border border-rose-100 rounded-xl flex flex-col items-center justify-center shadow-sm">
@@ -211,9 +194,6 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
       </div>
 
       {isManager ? (
-        /* =========================================================================
-           🚀 MANAGER DASHBOARD
-           ========================================================================= */
         <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
             <StatTile title="総プロジェクト数" value={stats.projectCount} icon={<Folder size={20}/>} color="bg-blue-500" />
@@ -223,7 +203,6 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* LEFT COLUMN */}
             <div className="lg:col-span-7 space-y-6">
               
               <div className="bg-white/40 backdrop-blur-2xl border border-white/80 p-8 rounded-[40px] shadow-xl">
@@ -291,7 +270,6 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
               </div>
             </div>
 
-            {/* RIGHT COLUMN */}
             <div className="lg:col-span-5 space-y-6">
               <div className="bg-blue-600 rounded-[32px] p-6 text-white shadow-xl shadow-blue-500/20 relative overflow-hidden">
                  <div className="absolute top-0 right-0 p-4 opacity-10"><Target size={80}/></div>
@@ -308,7 +286,6 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                  </div>
               </div>
 
-              {/* 🤖 NEW DYNAMIC AI REPORTS BLOCK */}
               <div className="bg-slate-900 rounded-[32px] p-6 text-white shadow-2xl relative overflow-hidden border-b-4 border-purple-500 flex flex-col max-h-[350px]">
                  <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={60} /></div>
                  <div className="relative z-10 flex justify-between items-center mb-4">
@@ -351,7 +328,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                       const isUrgent = new Date(t.dueDate).getTime() - Date.now() < 86400000 * 2;
                       return (
                         <div key={i} className="flex items-center gap-3 group">
-                          <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 shadow-sm ${isUrgent ? 'bg-rose-500 text-white' : 'bg-slate-100 text-slate-800'}`}>
+                          <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 shadow-sm ${isUrgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-100 text-slate-800'}`}>
                             <span className="text-[6px] font-black uppercase opacity-60">{new Date(t.dueDate).toLocaleString('ja-JP', {month:'short'})}</span>
                             <span className="text-sm font-black leading-none">{new Date(t.dueDate).getDate()}</span>
                           </div>
@@ -365,21 +342,15 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                 </div>
               </div>
 
-              {/* COMPACT ACTIVITY FEED FOR MANAGER */}
               <ActivityFeed feed={activityFeed} currentUserId={userId} router={router} />
             </div>
           </div>
         </div>
       ) : (
-        /* =========================================================================
-           🧑‍💻 MEMBER DASHBOARD 
-           ========================================================================= */
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in slide-in-from-bottom-4 duration-500">
           
-          {/* LEFT COLUMN: Focus Timer & Mission Queue */}
           <div className="lg:col-span-7 space-y-6">
             
-            {/* TIMER SECTION */}
             <div className="bg-white/40 backdrop-blur-2xl border border-white/60 p-8 rounded-[40px] shadow-xl relative overflow-hidden">
               <div className="flex flex-col md:flex-row items-center justify-between gap-6">
                 <div className="flex-1 text-center md:text-left">
@@ -402,7 +373,6 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
               </div>
             </div>
 
-            {/* MISSION QUEUE */}
             <div className="bg-white/20 backdrop-blur-xl border border-white/60 rounded-[32px] p-6 overflow-hidden flex flex-col max-h-[400px] shadow-lg">
               <div className="flex justify-between items-center mb-4 px-2">
                 <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-widest"><ListChecks className="text-blue-500" size={16}/> 割り当てられたタスク</h3>
@@ -439,17 +409,16 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
             </div>
           </div>
 
-          {/* RIGHT COLUMN: Collab Hub, Deadlines, and Compact Activity Feed */}
           <div className="lg:col-span-5 space-y-6">
              
-             {/* The Collaboration Hub (Feedback/Mentions) */}
-             <div className="bg-gradient-to-br from-indigo-900 to-slate-900 rounded-[32px] p-6 text-white shadow-xl relative overflow-hidden flex flex-col max-h-[300px]">
+             {/* 🌟 改善: Collaboration Hub の長文対応 */}
+             <div className="bg-gradient-to-br from-indigo-900 to-slate-900 rounded-[32px] p-6 text-white shadow-xl relative overflow-hidden flex flex-col max-h-[400px]">
                 <div className="absolute top-0 right-0 p-4 opacity-10"><MessageSquare size={60} /></div>
                 <div className="relative z-10 flex flex-col h-full">
                    <h4 className="text-[9px] font-black mb-4 uppercase tracking-[0.3em] text-indigo-400 flex items-center gap-2">
                      <Sparkles size={12}/> コラボレーション・ハブ
                    </h4>
-                   <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar flex-1">
+                   <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar flex-1">
                      {myRecentFeedback.length > 0 ? myRecentFeedback.map((fb, i) => (
                         <div key={i} className="p-3 bg-white/10 border border-white/10 rounded-xl hover:bg-white/20 transition-colors">
                            <p className="text-[11px] font-medium text-slate-200 leading-snug">
@@ -457,8 +426,11 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                              {fb.type === 'reaction' ? ` がリアクション(${fb.data.emoji})しました ` : ` がコメントしました `}
                              <span className="font-bold text-indigo-300">"{fb.task.title}"</span>
                            </p>
+                           {/* 📝 変更: whitespace-pre-wrap で改行を保持し、スクロール可能に */}
                            {fb.type === 'comment' && (
-                              <p className="text-[10px] italic text-slate-400 mt-1 bg-black/30 p-2 rounded-lg border-l-2 border-indigo-500">"{fb.data.text}"</p>
+                              <div className="text-[10px] text-slate-300 mt-2 bg-black/30 p-3 rounded-lg border-l-2 border-indigo-500 whitespace-pre-wrap break-words max-h-40 overflow-y-auto custom-scrollbar">
+                                {fb.data.text}
+                              </div>
                            )}
                         </div>
                      )) : (
@@ -468,7 +440,6 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                 </div>
              </div>
 
-             {/* Personal Deadlines */}
              <div className="bg-white/40 backdrop-blur-xl border border-white/60 p-6 rounded-[32px] shadow-md flex flex-col max-h-[300px]">
                 <h4 className="text-[10px] font-black text-slate-900 mb-4 uppercase tracking-widest flex items-center gap-2"><AlertCircle size={14} className="text-rose-500"/> 個人タスクの期限</h4>
                 <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar">
@@ -493,7 +464,6 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                 </div>
              </div>
 
-             {/* COMPACT ACTIVITY FEED FOR MEMBER */}
              <ActivityFeed feed={activityFeed} currentUserId={userId} router={router} />
 
           </div>
@@ -508,13 +478,13 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
 // ---------------------------------------------------------
 function ActivityFeed({ feed, currentUserId, router }: any) {
   return (
-    <div className="bg-white/30 backdrop-blur-2xl border border-white/60 p-6 rounded-[32px] shadow-lg flex flex-col max-h-[350px]">
+    <div className="bg-white/30 backdrop-blur-2xl border border-white/60 p-6 rounded-[32px] shadow-lg flex flex-col max-h-[500px]">
       <h4 className="text-[10px] font-black text-slate-900 mb-4 uppercase tracking-widest flex items-center gap-2">
          <History size={14} className="text-blue-500"/> チーム・アクティビティ
       </h4>
-      <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar flex-1">
-         {feed.map((t: any, i: number) => (
-           <InteractiveFeedItem key={i} task={t} currentUserId={currentUserId} router={router} />
+      <div className="overflow-y-auto space-y-4 pr-2 custom-scrollbar flex-1">
+         {feed.map((t: any) => (
+           <InteractiveFeedItem key={t.id} task={t} currentUserId={currentUserId} router={router} />
          ))}
       </div>
     </div>
@@ -527,6 +497,8 @@ function ActivityFeed({ feed, currentUserId, router }: any) {
 function InteractiveFeedItem({ task, currentUserId, router }: any) {
   const [showCommentBox, setShowCommentBox] = useState(false);
   const [commentText, setCommentText] = useState("");
+  // 🌟 NEW: すべてのコメントを表示するためのトグルState
+  const [showAllComments, setShowAllComments] = useState(false);
 
   const handleReaction = async (emoji: string) => {
     await toggleTaskReaction(task.id, emoji);
@@ -539,79 +511,101 @@ function InteractiveFeedItem({ task, currentUserId, router }: any) {
     await addTaskComment(task.id, commentText);
     setCommentText("");
     setShowCommentBox(false);
+    setShowAllComments(true); // コメントしたら全件表示にする
     router.refresh();
   };
 
+  // 🌟 NEW: リアクションした「ユーザー名」も保持するように変更
   const reactionsMap = task.reactions?.reduce((acc: any, r: any) => {
-    acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+    if (!acc[r.emoji]) acc[r.emoji] = { count: 0, users: [] };
+    acc[r.emoji].count += 1;
+    acc[r.emoji].users.push(r.user?.name || "Unknown");
     return acc;
   }, {}) || {};
 
   return (
-    <div className="relative group bg-white/40 hover:bg-white/60 backdrop-blur-md p-3 rounded-[20px] border border-white/50 shadow-sm transition-all duration-300 flex flex-col">
+    <div className="relative group bg-white/40 hover:bg-white/60 backdrop-blur-md p-4 rounded-[24px] border border-white/50 shadow-sm transition-all duration-300 flex flex-col">
        
-       {/* Sleek Hover Action Bar */}
        <div className="absolute -top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 bg-slate-900/90 backdrop-blur-md p-1 rounded-full shadow-lg z-10 border border-white/20">
-          <button onClick={() => handleReaction('🔥')} className="hover:scale-125 transition-transform text-[10px] px-1">🔥</button>
-          <button onClick={() => handleReaction('👍')} className="hover:scale-125 transition-transform text-[10px] px-1">👍</button>
-          <button onClick={() => handleReaction('👀')} className="hover:scale-125 transition-transform text-[10px] px-1">👀</button>
+          <button onClick={() => handleReaction('🔥')} className="hover:scale-125 transition-transform text-[10px] px-1.5 py-0.5">🔥</button>
+          <button onClick={() => handleReaction('👍')} className="hover:scale-125 transition-transform text-[10px] px-1.5 py-0.5">👍</button>
+          <button onClick={() => handleReaction('👀')} className="hover:scale-125 transition-transform text-[10px] px-1.5 py-0.5">👀</button>
           <div className="w-[1px] bg-white/20 mx-1"></div>
-          <button onClick={() => setShowCommentBox(!showCommentBox)} className="text-white/80 hover:text-white px-1.5 flex items-center justify-center">
-             <MessageSquare size={10}/>
+          <button onClick={() => setShowCommentBox(!showCommentBox)} className="text-white/80 hover:text-white px-2 flex items-center justify-center">
+             <MessageSquare size={12}/>
           </button>
        </div>
 
-       <div className="flex gap-2">
-          <div className="mt-0.5 shrink-0">
-             <div className={`w-5 h-5 rounded-full flex items-center justify-center text-white shadow-inner ${task.status === 'DONE' ? 'bg-emerald-500' : task.status === 'BLOCKED' ? 'bg-rose-500' : 'bg-blue-500'}`}>
-                {task.status === 'DONE' ? <CheckCircle size={8}/> : task.status === 'BLOCKED' ? <ShieldAlert size={8}/> : <Activity size={8}/>}
+       <div className="flex gap-3">
+          <div className="mt-1 shrink-0">
+             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white shadow-inner ${task.status === 'DONE' ? 'bg-emerald-500' : task.status === 'BLOCKED' ? 'bg-rose-500' : 'bg-blue-500'}`}>
+                {task.status === 'DONE' ? <CheckCircle size={10}/> : task.status === 'BLOCKED' ? <ShieldAlert size={10}/> : <Activity size={10}/>}
              </div>
           </div>
           <div className="min-w-0 flex-1">
-             <p className="text-[10px] font-medium text-slate-800 leading-tight">
+             <p className="text-xs font-medium text-slate-800 leading-tight">
                 <span className="font-black text-blue-700">{task.assignee?.name || "未割当"}</span> 
                 <span className="text-slate-500">{task.status === 'DONE' ? ' が完了しました ' : task.status === 'BLOCKED' ? ' がブロックされています ' : ' を更新しました '}</span>
                 <span className="font-bold text-slate-900">"{task.title}"</span>
              </p>
-             <p className="text-[8px] font-bold text-slate-400 mt-0.5 uppercase tracking-widest truncate">{task.projectName}</p>
+             <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-widest truncate">{task.projectName}</p>
              
-             {/* Reactions & Comments Count */}
+             {/* 🌟 改善: リアクションにツールチップを追加 */}
              {(Object.keys(reactionsMap).length > 0 || task.comments?.length > 0) && (
-               <div className="flex flex-wrap gap-1.5 mt-2">
-                  {Object.entries(reactionsMap).map(([emoji, count]) => (
-                    <button key={emoji} onClick={() => handleReaction(emoji)} className="flex items-center gap-1 bg-white/60 border border-white/40 px-1.5 py-0.5 rounded-full text-[9px] font-black hover:bg-white transition-colors shadow-sm">
-                       {emoji} <span className="text-slate-600">{count as number}</span>
-                    </button>
+               <div className="flex flex-wrap gap-2 mt-3">
+                  {Object.entries(reactionsMap).map(([emoji, data]: any) => (
+                    <div key={emoji} className="relative group/tooltip">
+                      <button onClick={() => handleReaction(emoji)} className="flex items-center gap-1 bg-white/60 border border-white/40 px-2 py-1 rounded-full text-[10px] font-black hover:bg-white transition-colors shadow-sm">
+                         {emoji} <span className="text-slate-600">{data.count}</span>
+                      </button>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover/tooltip:block bg-slate-800 text-white text-[10px] px-2 py-1 rounded-lg shadow-lg whitespace-nowrap z-50 pointer-events-none">
+                        {data.users.join(", ")}
+                      </div>
+                    </div>
                   ))}
                   {task.comments?.length > 0 && (
-                    <span className="flex items-center gap-1 text-[9px] font-bold text-slate-500 bg-white/40 px-1.5 py-0.5 rounded-full border border-white/20">
-                      <MessageSquare size={8}/> {task.comments.length}
+                    <span className="flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-white/40 px-2 py-1 rounded-full border border-white/20">
+                      <MessageSquare size={10}/> {task.comments.length}
                     </span>
                   )}
                </div>
              )}
 
-             {/* Latest Comment Display */}
+             {/* 🌟 改善: 全てのコメントの表示と、長い文章の折り返し */}
              {task.comments?.length > 0 && !showCommentBox && (
-                <div className="mt-2 bg-white/40 p-2 rounded-lg border border-white/50 border-l-2 border-l-blue-400">
-                  <p className="text-[9px] font-black text-slate-700">{task.comments[task.comments.length - 1].user?.name}</p>
-                  <p className="text-[9px] text-slate-600 mt-0.5 leading-snug truncate">{task.comments[task.comments.length - 1].text}</p>
+                <div className="mt-3 space-y-2">
+                  {(showAllComments ? task.comments : task.comments.slice(-1)).map((comment: any) => (
+                    <div key={comment.id} className="bg-white/50 p-3 rounded-2xl border border-white/60 border-l-4 border-l-blue-400 shadow-sm">
+                      <div className="flex justify-between items-start mb-1.5">
+                        <p className="text-[10px] font-black text-slate-800">{comment.user?.name}</p>
+                        <span className="text-[8px] text-slate-400 font-bold">{new Date(comment.createdAt).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                      {/* whitespace-pre-wrapで改行維持。max-hで長すぎたらスクロール */}
+                      <div className="text-[11px] text-slate-700 leading-relaxed whitespace-pre-wrap break-words max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                        {comment.text}
+                      </div>
+                    </div>
+                  ))}
+                  {task.comments.length > 1 && (
+                    <button onClick={() => setShowAllComments(!showAllComments)} className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 mt-1">
+                      {showAllComments ? "コメントを折りたたむ" : `他 ${task.comments.length - 1} 件のコメントを見る`}
+                    </button>
+                  )}
                 </div>
              )}
 
-             {/* Inline Comment Input Box */}
              {showCommentBox && (
-                <form onSubmit={handleComment} className="mt-2 flex gap-2 animate-in fade-in zoom-in-95 duration-200">
+                <form onSubmit={handleComment} className="mt-3 flex gap-2 animate-in fade-in zoom-in-95 duration-200">
                    <input 
                      type="text" 
                      autoFocus
                      value={commentText} 
                      onChange={(e) => setCommentText(e.target.value)} 
                      placeholder="返信を入力..." 
-                     className="flex-1 bg-white/60 border border-white/80 rounded-lg px-2 py-1 text-[10px] font-bold outline-none focus:ring-1 focus:ring-blue-400 shadow-inner text-slate-800"
+                     className="flex-1 bg-white/60 border border-white/80 rounded-xl px-3 py-2 text-[11px] font-bold outline-none focus:ring-2 focus:ring-blue-400 shadow-inner text-slate-800"
                    />
-                   <button type="submit" className="w-5 h-5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center transition-colors shadow-sm">
-                      <Send size={10}/>
+                   <button type="submit" className="w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex items-center justify-center transition-colors shadow-sm">
+                      <Send size={14}/>
                    </button>
                 </form>
              )}
@@ -679,10 +673,8 @@ function CalendarHeatmap({ allTasks }: { allTasks: any[] }) {
       <div className="grid grid-cols-7 gap-2">
         {days.map((dateStr, i) => {
           if (!dateStr) return <div key={`empty-${i}`} className="h-8 rounded-xl" />;
-          
           const dayTasks = getTasksForDate(dateStr);
           const count = dayTasks.length;
-          
           let bgClass = "bg-slate-100/50 hover:bg-slate-200 border-white/50";
           let textClass = "text-slate-400";
           if (count === 1) { bgClass = "bg-blue-200 border-blue-300 shadow-sm"; textClass = "text-blue-800"; }
@@ -692,7 +684,6 @@ function CalendarHeatmap({ allTasks }: { allTasks: any[] }) {
           return (
             <div key={dateStr} className={`relative group h-8 rounded-xl border flex items-center justify-center cursor-help transition-all duration-300 hover:scale-110 hover:z-20 ${bgClass}`}>
               <span className={`text-[9px] font-black ${textClass}`}>{parseInt(dateStr.split('-')[2])}</span>
-              
               {count > 0 && (
                 <div className="absolute hidden group-hover:flex flex-col bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-slate-900/95 backdrop-blur-xl border border-white/10 text-white p-3 rounded-2xl shadow-2xl z-50">
                   <span className="font-black text-[9px] text-cyan-400 mb-2 border-b border-white/10 pb-1 uppercase tracking-widest">{dateStr}</span>

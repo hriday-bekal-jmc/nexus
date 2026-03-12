@@ -15,7 +15,7 @@ function LoginContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     setError("");
@@ -31,20 +31,30 @@ function LoginContent() {
       return;
     }
 
-    const res = await signIn("credentials", {
-      email, password, redirect: false,
-    });
+    try {
+      const res = await signIn("credentials", {
+        email, 
+        password, 
+        redirect: false,
+      });
 
-    if (res?.error) {
-      setError("認証に失敗しました。メールアドレスとパスワードを確認してください。");
+      if (res?.error) {
+        // パターン1: 認証エラーが明確に返ってきた場合
+        setError("認証に失敗しました。メールアドレスとパスワードを確認してください。");
+        setLoading(false);
+      } else if (res?.ok) {
+        // パターン2: 認証が明確に成功した場合
+        router.push("/");
+        router.refresh();
+      } else {
+        // パターン3: 予期せぬレスポンスだった場合の安全網（以前解決したかった事象への対応）
+        router.push("/");
+      }
+    } catch (err) {
+      // ネットワークエラーなど、signIn関数自体がクラッシュした場合
+      setError("システムエラーが発生しました。");
       setLoading(false);
-    } else {
-      router.push("/");
-      router.refresh();
     }
-    else {
-  router.push("/");
-}
   };
 
   const handleGoogleSignIn = () => {
