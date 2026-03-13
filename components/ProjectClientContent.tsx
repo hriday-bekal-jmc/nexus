@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Plus, X, Folder, Edit3, Trash2, UserPlus, ListTodo, Link as LinkIcon, Sparkles, CheckCircle2, Circle, Clock } from "lucide-react";
 import { createProject, updateProject, deleteProject, generateTasksFromAI, toggleTaskStatus } from "@/lib/actions";
 import { useRouter } from "next/navigation";
+import { unarchiveProject } from "@/lib/actions";
 
 export default function ProjectClientContent({ initialProjects, allUsers, userRole, userId }: { initialProjects: any[], allUsers: any[], userRole: string, userId: string }) {
   const router = useRouter();
@@ -12,6 +13,14 @@ export default function ProjectClientContent({ initialProjects, allUsers, userRo
   // プロジェクトを即座に画面に反映するためのState
   const [projects, setProjects] = useState(initialProjects);
   useEffect(() => { setProjects(initialProjects); }, [initialProjects]);
+
+  // 🌟 NEW: 進行中かアーカイブ済かの表示切り替えステート
+  const [viewMode, setViewMode] = useState<"ACTIVE" | "ARCHIVED">("ACTIVE");
+
+  // 🌟 NEW: 選択されたタブ（viewMode）に応じてプロジェクト一覧をフィルタリングする
+  const displayedProjects = projects.filter((p: any) => 
+    viewMode === "ARCHIVED" ? p.status === "ARCHIVED" : p.status !== "ARCHIVED"
+  );
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -137,8 +146,30 @@ const handleAIIdentify = async () => {
       </div>
 
       {/* Grid of Projects */}
+      {/* 🌟 NEW: 進行中 / アーカイブ済 切り替えタブ */}
+      <div className="flex items-center p-1.5 bg-white/40 backdrop-blur-md rounded-2xl border border-white/60 shadow-sm w-fit mb-6">
+        <button 
+          onClick={() => setViewMode("ACTIVE")} 
+          className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${viewMode === "ACTIVE" ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-800'}`}
+        >
+          🚀 進行中のプロジェクト
+        </button>
+        <button 
+          onClick={() => setViewMode("ARCHIVED")} 
+          className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${viewMode === "ARCHIVED" ? 'bg-slate-700 text-white shadow-md' : 'text-slate-500 hover:text-slate-800'}`}
+        >
+          📦 アーカイブ済
+        </button>
+      </div>
+
+      {/* Grid of Projects */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {projects.map((proj) => {
+        {displayedProjects.length === 0 ? (
+           <div className="col-span-full py-20 flex flex-col items-center justify-center text-slate-400 opacity-80">
+             <span className="text-4xl mb-4">{viewMode === "ARCHIVED" ? "📦" : "🚀"}</span>
+             <p className="text-sm font-black">{viewMode === "ARCHIVED" ? "アーカイブされたプロジェクトはありません" : "進行中のプロジェクトはありません"}</p>
+           </div>
+        ) : displayedProjects.map((proj) => {
           const progress = getProgress(proj.tasks);
           return (
             <div key={proj.id} onClick={() => openViewProject(proj)} className="bg-white/40 backdrop-blur-xl border border-white/60 p-6 rounded-[32px] hover:shadow-xl transition-all cursor-pointer group flex flex-col h-full">
@@ -196,7 +227,32 @@ const handleAIIdentify = async () => {
                     )}
                     <button onClick={() => setIsModalOpen(false)} className="p-3 text-slate-500 bg-white rounded-full shadow-sm hover:bg-slate-100 transition-colors"><X size={20} /></button>
                   </div>
-                </div>
+</div>
+
+                {/* 🌟 NEW: アーカイブ済みの場合はバッジと復元ボタンを表示 */}
+                {selectedProject.status === "ARCHIVED" && (
+                  <div className="flex items-center gap-3 mb-6 p-4 bg-slate-100/80 border border-slate-200 rounded-2xl shadow-inner animate-in fade-in zoom-in-95">
+                    <span className="bg-slate-700 text-white text-[10px] font-black px-3 py-1.5 rounded-lg uppercase tracking-widest flex items-center gap-1.5">
+                      📦 アーカイブ済み
+                    </span>
+                    <p className="text-xs font-bold text-slate-500">このプロジェクトは完了し、アーカイブされています。</p>
+                    
+                    {/* マネージャーのみ復元可能 */}
+                    {isManager && (
+                      <button 
+                        onClick={async () => {
+                          await unarchiveProject(selectedProject.id);
+                          alert("🎉 プロジェクトを進行中に復元しました！");
+                          setSelectedProject({ ...selectedProject, status: "ACTIVE" });
+                          router.refresh();
+                        }}
+                        className="ml-auto text-[10px] font-black bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl hover:bg-slate-50 hover:text-blue-600 transition-all shadow-sm flex items-center gap-1.5 active:scale-95"
+                      >
+                        復元する
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 <p className="text-slate-600 mb-8 bg-white/60 p-4 rounded-2xl border border-white">{selectedProject.description}</p>
 

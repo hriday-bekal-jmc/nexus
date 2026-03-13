@@ -6,12 +6,17 @@ import { useRouter } from "next/navigation";
 import { 
   Folder, Pause, Play, Sparkles, BarChart2, ShieldAlert, 
   CheckCircle, Clock, LayoutGrid, TrendingUp, Calendar, Target, Zap, Users,
-  ArrowRight, Activity, AlertCircle, ListChecks, History, MessageSquare, Send
+  ArrowRight, Activity, AlertCircle, ListChecks, History, MessageSquare, Send, CheckSquare, PieChart as PieChartIcon
 } from "lucide-react";
 import { 
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell
 } from "recharts";
-import { toggleTaskStatus, updateTaskTime, toggleTaskReaction, addTaskComment, generateDashboardInsights } from "@/lib/actions";
+import { toggleTaskStatus, updateTaskTime, toggleTaskReaction, addTaskComment, generateDashboardInsights, generatePersonalFocusPlan, updateTaskDescription } from "@/lib/actions";
+import confetti from "canvas-confetti";
+import { autoCompleteTask } from "@/lib/actions";
+import { approveAndArchiveProject } from "@/lib/actions";
+
+const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b', '#f97316', '#10b981'];
 
 export default function DashboardClient({ userName, userId, userRole, stats, projects }: any) {
   const router = useRouter();
@@ -24,7 +29,6 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
   const myTasks = useMemo(() => allTasks.filter((t: any) => t.assigneeId === userId && t.status !== "DONE"), [allTasks, userId]);
   
   const weeklyDone = allTasks.filter((t:any) => t.status === "DONE").length;
-  const weeklyTotal = allTasks.length;
 
   const urgentStats = useMemo(() => {
     const today = new Date(); today.setHours(0,0,0,0);
@@ -34,19 +38,6 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
       highPriority: myTasks.filter((t:any) => t.priority === 'HIGH').length
     };
   }, [myTasks]);
-
-  const myRecentFeedback = useMemo(() => {
-    const feedback: any[] = [];
-    myTasks.forEach((t: any) => {
-      t.comments?.forEach((c: any) => {
-        if (c.userId !== userId) feedback.push({ type: 'comment', data: c, task: t, time: new Date(c.createdAt) });
-      });
-      t.reactions?.forEach((r: any) => {
-        if (r.userId !== userId) feedback.push({ type: 'reaction', data: r, task: t, time: new Date(r.createdAt) });
-      });
-    });
-    return feedback.sort((a, b) => b.time.getTime() - a.time.getTime()).slice(0, 5);
-  }, [myTasks, userId]);
 
   const teamDetails = useMemo(() => {
     const usersMap = new Map();
@@ -72,15 +63,45 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
   const [aiReports, setAiReports] = useState<any[]>([]);
   const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
 
-  const handleGenerateInsights = async () => {
+  // 🌟 NEW: マウント時にキャッシュからAIレポートを読み込む
+  useEffect(() => {
+    if (isManager) {
+      const cachedInsights = localStorage.getItem(`nexus_ai_insights_${userId}`);
+      if (cachedInsights) {
+        try { setAiReports(JSON.parse(cachedInsights)); } catch (e) {}
+      }
+    }
+  }, [isManager, userId]);
+
+const handleGenerateInsights = async () => {
     setIsGeneratingInsights(true);
-    const recentTasksForAI = allTasks.slice(0, 15).map((t: any) => ({
-      title: t.title,
-      status: t.status,
-      assignee: t.assignee?.name || "未割当"
-    }));
-    const generatedReports = await generateDashboardInsights(JSON.stringify(recentTasksForAI));
-    if (generatedReports && generatedReports.length > 0) setAiReports(generatedReports);
+    
+    // 🌟 AIが「期限超過」を判定できるように今日の日付を取得
+    const todayStr = new Date().toLocaleDateString('ja-JP');
+    
+    // 🌟 進行中・ブロック中のタスクを抽出し、期限や優先度、作業時間をAIに渡す
+    const tasksForAI = allTasks
+      .filter((t: any) => t.status !== "DONE")
+      .map((t: any) => ({
+        assignee: t.assignee?.name || "未割当",
+        title: t.title,
+        status: t.status,
+        priority: t.priority,
+        dueDate: t.dueDate ? new Date(t.dueDate).toLocaleDateString('ja-JP') : "期限なし",
+        workedMinutes: Math.floor((t.timeElapsed || 0) / 60)
+      }));
+
+    const payload = JSON.stringify({ 
+      currentDate: todayStr, 
+      activeTasks: tasksForAI 
+    });
+
+    const generatedReports = await generateDashboardInsights(payload);
+    
+    if (generatedReports && generatedReports.length > 0) {
+      setAiReports(generatedReports);
+      localStorage.setItem(`nexus_ai_insights_${userId}`, JSON.stringify(generatedReports));
+    }
     setIsGeneratingInsights(false);
   };
 
@@ -159,6 +180,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
   return (
     <div className="max-w-7xl mx-auto pb-24 space-y-6 animate-in fade-in duration-700 text-slate-900">
       
+      {/* HEADER */}
       <div className="flex justify-between items-center px-8 py-6 bg-white/30 backdrop-blur-xl border border-white/40 rounded-[32px] shadow-lg">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 bg-gradient-to-tr from-blue-600 to-cyan-500 rounded-xl flex items-center justify-center text-white shadow-lg">
@@ -186,14 +208,10 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
              </div>
           </div>
         )}
-        {isManager && (
-           <Link href="/projects" className="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-xs hover:scale-105 transition-all flex items-center gap-2 shadow-xl">
-             <Folder size={16} className="text-blue-400" /> プロジェクトを管理
-           </Link>
-        )}
       </div>
 
       {isManager ? (
+        /* 🧑‍💼 MANAGER VIEW */
         <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
             <StatTile title="総プロジェクト数" value={stats.projectCount} icon={<Folder size={20}/>} color="bg-blue-500" />
@@ -205,6 +223,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-7 space-y-6">
               
+              {/* メンバー別タスク状況 */}
               <div className="bg-white/40 backdrop-blur-2xl border border-white/80 p-8 rounded-[40px] shadow-xl">
                  <h3 className="text-xl font-black text-slate-900 mb-6 italic flex items-center gap-3"><Users className="text-blue-600"/> メンバー別タスク状況</h3>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -240,17 +259,34 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                  </div>
               </div>
 
+              {/* 🌟 プロジェクト進捗パネル (アーカイブ承認ボタン付き) */}
               <div className="bg-white/40 backdrop-blur-2xl border border-white/60 p-6 rounded-[32px] shadow-xl flex flex-col max-h-[350px]">
                  <div className="flex justify-between items-center mb-4 px-2">
                     <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 uppercase tracking-widest"><TrendingUp size={16} className="text-blue-600"/> プロジェクト進捗</h3>
                  </div>
                  <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                    {projects.map((p: any) => {
+                    {projects.filter((p:any) => p.status !== "ARCHIVED").map((p: any) => {
                        const done = p.tasks.filter((t:any) => t.status === "DONE").length;
                        const total = p.tasks.length;
                        const progress = total > 0 ? Math.round((done / total) * 100) : 0;
                        return (
-                         <div key={p.id} className="p-4 bg-white/60 rounded-2xl border border-white flex flex-col gap-2 shadow-sm hover:shadow-md transition-shadow">
+                         <Link href="/projects" key={p.id} className="relative block p-4 bg-white/60 rounded-2xl border border-white flex flex-col gap-2 shadow-sm hover:shadow-md transition-shadow cursor-pointer overflow-hidden">
+                            {p.status === "PENDING_APPROVAL" && (
+                              <div className="absolute inset-0 bg-white/70 backdrop-blur-sm z-10 flex flex-col items-center justify-center animate-in fade-in zoom-in duration-300">
+                                 <button 
+                                   onClick={async (e) => {
+                                     e.preventDefault(); e.stopPropagation();
+                                     await approveAndArchiveProject(p.id);
+                                     alert("🎉 プロジェクトを承認し、アーカイブに移動しました！");
+                                     router.refresh();
+                                   }} 
+                                   className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black text-[10px] px-4 py-2.5 rounded-xl shadow-lg hover:scale-110 transition-transform flex items-center gap-1.5"
+                                 >
+                                   <Sparkles size={14} /> 承認してアーカイブ
+                                 </button>
+                              </div>
+                            )}
+
                             <div className="flex justify-between items-center">
                                <h4 className="font-bold text-xs text-slate-900">{p.name}</h4>
                                <span className="text-[10px] font-black text-blue-600">{progress}%</span>
@@ -258,12 +294,13 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                             <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
                                <div className="h-full bg-blue-500 rounded-full" style={{width: `${progress}%`}}></div>
                             </div>
-                         </div>
+                         </Link>
                        );
                     })}
                  </div>
               </div>
 
+              {/* 🌟 期限ヒートマップ */}
               <div className="bg-white/40 backdrop-blur-2xl border border-white/80 p-8 rounded-[40px] shadow-xl">
                  <h3 className="text-xl font-black text-slate-900 mb-6 italic flex items-center gap-3"><Calendar className="text-indigo-500"/> 期限ヒートマップ</h3>
                  <CalendarHeatmap allTasks={allTasks} />
@@ -271,32 +308,14 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
             </div>
 
             <div className="lg:col-span-5 space-y-6">
-              <div className="bg-blue-600 rounded-[32px] p-6 text-white shadow-xl shadow-blue-500/20 relative overflow-hidden">
-                 <div className="absolute top-0 right-0 p-4 opacity-10"><Target size={80}/></div>
-                 <h4 className="text-[9px] font-black uppercase tracking-[0.3em] mb-4">部門別ステータス</h4>
-                 <div className="grid grid-cols-2 gap-4">
-                   <div>
-                     <p className="text-[9px] font-bold uppercase opacity-60 mb-1">未完了タスク</p>
-                     <p className="text-3xl font-black italic">{allTasks.filter((t:any) => t.status !== "DONE").length}</p>
-                   </div>
-                   <div>
-                     <p className="text-[9px] font-bold uppercase opacity-60 mb-1">完了タスク</p>
-                     <p className="text-3xl font-black italic text-cyan-300">{weeklyDone}</p>
-                   </div>
-                 </div>
-              </div>
-
+              {/* AI業務要約 */}
               <div className="bg-slate-900 rounded-[32px] p-6 text-white shadow-2xl relative overflow-hidden border-b-4 border-purple-500 flex flex-col max-h-[350px]">
                  <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={60} /></div>
                  <div className="relative z-10 flex justify-between items-center mb-4">
                     <h4 className="text-[9px] font-black uppercase tracking-[0.3em] text-purple-400 flex items-center gap-2">
                       <Sparkles size={12}/> AIによる業務要約
                     </h4>
-                    <button 
-                      onClick={handleGenerateInsights} 
-                      disabled={isGeneratingInsights}
-                      className="text-[10px] font-black bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-full hover:bg-purple-500/40 transition-colors flex items-center gap-1 disabled:opacity-50"
-                    >
+                    <button onClick={handleGenerateInsights} disabled={isGeneratingInsights} className="text-[10px] font-black bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-full hover:bg-purple-500/40 transition-colors flex items-center gap-1 disabled:opacity-50">
                       {isGeneratingInsights ? "分析中..." : "インサイトを生成"}
                     </button>
                  </div>
@@ -314,43 +333,26 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                                {report.status}
                              </span>
                           </div>
-                          <p className="text-[10px] text-slate-300 line-clamp-2 leading-snug">{report.summary}</p>
+                          <p className="text-[11px] text-slate-300 leading-relaxed whitespace-pre-wrap">{report.summary}</p>
                         </Link>
                       ))
                     )}
                  </div>
               </div>
-
-              <div className="bg-white/40 backdrop-blur-xl border border-white/60 p-6 rounded-[32px] shadow-md flex flex-col max-h-[300px]">
-                <h4 className="text-[10px] font-black text-slate-900 mb-4 uppercase tracking-widest flex items-center gap-2"><AlertCircle size={14} className="text-rose-500"/> プロジェクト期限一覧</h4>
-                <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-                  {allTasks.filter((t:any) => t.dueDate && t.status !== "DONE").sort((a:any, b:any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((t:any, i:number) => {
-                      const isUrgent = new Date(t.dueDate).getTime() - Date.now() < 86400000 * 2;
-                      return (
-                        <div key={i} className="flex items-center gap-3 group">
-                          <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 shadow-sm ${isUrgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-100 text-slate-800'}`}>
-                            <span className="text-[6px] font-black uppercase opacity-60">{new Date(t.dueDate).toLocaleString('ja-JP', {month:'short'})}</span>
-                            <span className="text-sm font-black leading-none">{new Date(t.dueDate).getDate()}</span>
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[11px] font-black text-slate-800 truncate leading-tight">{t.title}</p>
-                            <p className="text-[8px] font-bold text-slate-500 truncate uppercase mt-0.5">{t.assignee?.name || "未割当"} • {t.projectName}</p>
-                          </div>
-                        </div>
-                      )
-                  })}
-                </div>
-              </div>
-
+              
+              {/* ライブアクティビティフィード（マネージャー用） */}
               <ActivityFeed feed={activityFeed} currentUserId={userId} router={router} />
             </div>
           </div>
         </div>
       ) : (
+        /* 🧑‍💻 MEMBER VIEW */
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in slide-in-from-bottom-4 duration-500">
           
+          {/* 左カラム：タイマー、タスク、そしてフィード */}
           <div className="lg:col-span-7 space-y-6">
             
+            {/* TIMER COMPONENT */}
             <div className="bg-white/40 backdrop-blur-2xl border border-white/60 p-8 rounded-[40px] shadow-xl relative overflow-hidden">
               <div className="flex flex-col md:flex-row items-center justify-between gap-6">
                 <div className="flex-1 text-center md:text-left">
@@ -373,6 +375,7 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
               </div>
             </div>
 
+            {/* TASK LIST */}
             <div className="bg-white/20 backdrop-blur-xl border border-white/60 rounded-[32px] p-6 overflow-hidden flex flex-col max-h-[400px] shadow-lg">
               <div className="flex justify-between items-center mb-4 px-2">
                 <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-widest"><ListChecks className="text-blue-500" size={16}/> 割り当てられたタスク</h3>
@@ -389,7 +392,9 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                       <div className={`w-2 h-2 rounded-full shrink-0 shadow-sm ${t.priority === 'HIGH' ? 'bg-rose-500' : t.priority === 'MEDIUM' ? 'bg-amber-500' : 'bg-blue-500'}`} />
                       <div className="min-w-0">
                         <h4 className="font-black text-xs text-slate-800 truncate">{t.title}</h4>
-                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter truncate">{t.projectName}</p>
+                        <Link href="/projects" onClick={(e) => e.stopPropagation()} className="text-[9px] font-bold text-blue-500 hover:text-blue-700 hover:underline uppercase tracking-tighter truncate block w-fit">
+                          {t.projectName}
+                        </Link>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
@@ -400,71 +405,40 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
                     </div>
                   </div>
                 ))}
-                {myTasks.length === 0 && (
-                  <div className="py-8 text-center bg-white/10 rounded-2xl border-2 border-dashed border-white/20">
-                    <p className="text-slate-400 font-bold text-[11px]">現在割り当てられているタスクはありません。</p>
-                  </div>
-                )}
               </div>
             </div>
+
+            {/* 🔥 完全復活したライブアクティビティフィード（メンバー用） */}
+            <ActivityFeed feed={activityFeed} currentUserId={userId} router={router} />
+
           </div>
 
+          {/* 右カラム：3in1パネルと期限 */}
           <div className="lg:col-span-5 space-y-6">
              
-             {/* 🌟 改善: Collaboration Hub の長文対応 */}
-             <div className="bg-gradient-to-br from-indigo-900 to-slate-900 rounded-[32px] p-6 text-white shadow-xl relative overflow-hidden flex flex-col max-h-[400px]">
-                <div className="absolute top-0 right-0 p-4 opacity-10"><MessageSquare size={60} /></div>
-                <div className="relative z-10 flex flex-col h-full">
-                   <h4 className="text-[9px] font-black mb-4 uppercase tracking-[0.3em] text-indigo-400 flex items-center gap-2">
-                     <Sparkles size={12}/> コラボレーション・ハブ
-                   </h4>
-                   <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar flex-1">
-                     {myRecentFeedback.length > 0 ? myRecentFeedback.map((fb, i) => (
-                        <div key={i} className="p-3 bg-white/10 border border-white/10 rounded-xl hover:bg-white/20 transition-colors">
-                           <p className="text-[11px] font-medium text-slate-200 leading-snug">
-                             <span className="font-black text-white">{fb.data.user?.name || "チームメンバー"}</span>
-                             {fb.type === 'reaction' ? ` がリアクション(${fb.data.emoji})しました ` : ` がコメントしました `}
-                             <span className="font-bold text-indigo-300">"{fb.task.title}"</span>
-                           </p>
-                           {/* 📝 変更: whitespace-pre-wrap で改行を保持し、スクロール可能に */}
-                           {fb.type === 'comment' && (
-                              <div className="text-[10px] text-slate-300 mt-2 bg-black/30 p-3 rounded-lg border-l-2 border-indigo-500 whitespace-pre-wrap break-words max-h-40 overflow-y-auto custom-scrollbar">
-                                {fb.data.text}
-                              </div>
-                           )}
-                        </div>
-                     )) : (
-                        <p className="text-[10px] text-slate-400 font-bold italic mt-2">新着のフィードバックはありません。</p>
-                     )}
-                   </div>
-                </div>
-             </div>
+              {/* 🌟 3 in 1 Productivity Panel (NEW) */}
+             <ProductivityPanel myTasks={myTasks} activeTask={activeTask} userId={userId} />
 
              <div className="bg-white/40 backdrop-blur-xl border border-white/60 p-6 rounded-[32px] shadow-md flex flex-col max-h-[300px]">
                 <h4 className="text-[10px] font-black text-slate-900 mb-4 uppercase tracking-widest flex items-center gap-2"><AlertCircle size={14} className="text-rose-500"/> 個人タスクの期限</h4>
                 <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar">
                   {myTasks.filter((t:any) => t.dueDate).sort((a:any, b:any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((t:any, i:number) => {
-                      const isUrgent = new Date(t.dueDate).getTime() - Date.now() < 86400000 * 2;
-                      return (
-                        <div key={i} className="flex items-center gap-3 group">
-                          <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 shadow-sm ${isUrgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-100 text-slate-800'}`}>
-                            <span className="text-[7px] font-black uppercase opacity-60">{new Date(t.dueDate).toLocaleString('ja-JP', {month:'short'})}</span>
-                            <span className="text-sm font-black leading-none">{new Date(t.dueDate).getDate()}</span>
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[11px] font-black text-slate-800 truncate leading-tight">{t.title}</p>
-                            <p className="text-[9px] font-bold text-slate-400 truncate uppercase mt-0.5">{t.projectName}</p>
-                          </div>
-                        </div>
-                      )
-                  })}
-                  {myTasks.filter((t:any) => t.dueDate).length === 0 && (
-                    <p className="text-[10px] text-slate-500 font-bold italic">現在、期限が設定されたタスクはありません。</p>
-                  )}
+                        const isUrgent = new Date(t.dueDate).getTime() - Date.now() < 86400000 * 2;
+                        return (
+                          <Link href="/tasks" key={i} className="flex items-center gap-3 group hover:bg-white/50 p-1.5 -ml-1.5 rounded-xl transition-colors cursor-pointer">
+                            <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 shadow-sm ${isUrgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-100 text-slate-800'}`}>
+                              <span className="text-[7px] font-black uppercase opacity-60">{new Date(t.dueDate).toLocaleString('ja-JP', {month:'short'})}</span>
+                              <span className="text-sm font-black leading-none">{new Date(t.dueDate).getDate()}</span>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[11px] font-black text-slate-800 truncate leading-tight">{t.title}</p>
+                              <p className="text-[9px] font-bold text-slate-400 truncate uppercase mt-0.5">{t.projectName}</p>
+                            </div>
+                          </Link>
+                        );
+                    })}
                 </div>
              </div>
-
-             <ActivityFeed feed={activityFeed} currentUserId={userId} router={router} />
 
           </div>
         </div>
@@ -474,13 +448,195 @@ export default function DashboardClient({ userName, userId, userRole, stats, pro
 }
 
 // ---------------------------------------------------------
-// COMPONENT: Compact & Glassy Activity Feed
+// 🌟 NEW COMPONENT: 3 in 1 Productivity Panel
+// ---------------------------------------------------------
+function ProductivityPanel({ myTasks, activeTask, userId }: { myTasks: any[], activeTask: any, userId: string }) {
+  const router = useRouter(); // 🌟 NEW: UI更新用
+  const [activeTab, setActiveTab] = useState<"AI_PLAN" | "TIME_CHART" | "SUBTASKS">("SUBTASKS");
+  const [aiPlan, setAiPlan] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  useEffect(() => {
+    const cachedPlan = localStorage.getItem(`nexus_ai_plan_${userId}`);
+    if (cachedPlan) setAiPlan(cachedPlan);
+  }, [userId]);
+
+  const timeChartData = useMemo(() => {
+    const map = new Map();
+    myTasks.forEach(t => {
+      if (t.timeElapsed > 0) map.set(t.projectName, (map.get(t.projectName) || 0) + t.timeElapsed);
+    });
+    return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
+  }, [myTasks]);
+
+  const handleGeneratePlan = async () => {
+    setIsGenerating(true);
+    const tasksToAnalyze = myTasks.map((t: any) => ({ title: t.title, priority: t.priority, due: t.dueDate }));
+    const plan = await generatePersonalFocusPlan(JSON.stringify(tasksToAnalyze));
+    setAiPlan(plan);
+    localStorage.setItem(`nexus_ai_plan_${userId}`, plan);
+    setIsGenerating(false);
+  };
+
+  const extractChecklists = (desc: string) => {
+    if (!desc) return [];
+    return desc.split('\n').filter(line => line.trim().startsWith('- [ ]') || line.trim().startsWith('- [x]'));
+  };
+  const activeSubtasks = extractChecklists(activeTask?.description || "");
+
+  // 🌟 NEW: サブタスク自動完了ロジック
+  const handleToggleSubtask = async (line: string) => {
+    if (!activeTask) return;
+    const isChecked = line.includes('- [x]');
+    const newLine = isChecked ? line.replace('- [x]', '- [ ]') : line.replace('- [ ]', '- [x]');
+    const newDesc = activeTask.description.replace(line, newLine);
+    
+    await updateTaskDescription(activeTask.id, newDesc);
+
+    const totalBoxes = (newDesc.match(/- \[[ xX]\]/g) || []).length;
+    const doneBoxes = (newDesc.match(/- \[[xX]\]/g) || []).length;
+    const isAllDone = totalBoxes > 0 && totalBoxes === doneBoxes;
+
+    if (isAllDone && activeTask.status !== "DONE") {
+      // 🎉 紙吹雪アニメーション！
+      confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+      await autoCompleteTask(activeTask.id);
+      
+      // タイマーが動いていたら自動で停止する
+      const savedTaskId = localStorage.getItem("nexus_active_task_id");
+      if (savedTaskId === activeTask.id) {
+        localStorage.setItem("nexus_timer_running", "false");
+      }
+    }
+    router.refresh();
+  };
+  return (
+    <div className="bg-white/50 backdrop-blur-2xl border border-white/80 rounded-[32px] shadow-xl overflow-hidden flex flex-col h-[380px]">
+      
+      {/* Tabs */}
+      <div className="flex bg-slate-100/50 p-2 gap-2 border-b border-white">
+        <button onClick={() => setActiveTab("SUBTASKS")} className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[10px] font-black transition-all ${activeTab === 'SUBTASKS' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:bg-white/50'}`}>
+          <CheckSquare size={14}/> 進行中タスク
+        </button>
+        <button onClick={() => setActiveTab("TIME_CHART")} className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[10px] font-black transition-all ${activeTab === 'TIME_CHART' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:bg-white/50'}`}>
+          <PieChartIcon size={14}/> タイム投資
+        </button>
+        <button onClick={() => setActiveTab("AI_PLAN")} className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[10px] font-black transition-all ${activeTab === 'AI_PLAN' ? 'bg-purple-600 text-white shadow-md' : 'text-slate-400 hover:bg-white/50'}`}>
+          <Sparkles size={14}/> AI戦略
+        </button>
+      </div>
+
+      {/* Content Area */}
+      <div className="flex-1 p-6 overflow-y-auto custom-scrollbar">
+        
+        {/* TAB 1: SUBTASKS */}
+        {activeTab === "SUBTASKS" && (
+          <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-300">
+            {activeTask ? (
+              <>
+                <h4 className="text-[11px] font-black text-slate-800 mb-4">{activeTask.title} のサブタスク</h4>
+                {activeSubtasks.length > 0 ? (
+                  <div className="space-y-2">
+                    {activeSubtasks.map((line, i) => {
+                      const isChecked = line.includes('- [x]');
+                      const text = line.replace('- [ ] ', '').replace('- [x] ', '');
+                      return (
+                        <div key={i} onClick={() => handleToggleSubtask(line)} className="flex items-start gap-2.5 p-3 bg-white/60 rounded-xl border border-white shadow-sm cursor-pointer hover:border-blue-300 transition-colors group">
+                          <div className={`mt-0.5 shrink-0 transition-colors ${isChecked ? 'text-emerald-500' : 'text-slate-300 group-hover:text-blue-400'}`}>
+                            {isChecked ? <CheckCircle size={16} /> : <div className="w-4 h-4 rounded-md border-2 border-current"></div>}
+                          </div>
+                          <span className={`text-[11px] font-bold leading-tight ${isChecked ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{text}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center text-slate-400 opacity-70">
+                    <CheckSquare size={32} className="mb-2" />
+                    <p className="text-[10px] font-bold text-center">タスク詳細にチェックリスト (- [ ]) が<br/>含まれていません。</p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-400 opacity-70">
+                <Play size={32} className="mb-2" />
+                <p className="text-[10px] font-bold">左のリストからタスクを選択して<br/>タイマーを開始してください</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: TIME CHART */}
+        {activeTab === "TIME_CHART" && (
+          <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-300">
+            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">プロジェクト別 投資時間</h4>
+            {timeChartData.length > 0 ? (
+              <div className="flex-1 min-h-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={timeChartData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={5} dataKey="value" stroke="none">
+                      {timeChartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<CustomTooltip />} isAnimationActive={false} cursor={{fill: 'transparent'}} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex flex-wrap justify-center gap-2 mt-2">
+                   {timeChartData.map((entry, index) => (
+                     <div key={index} className="flex items-center gap-1">
+                       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
+                       <span className="text-[8px] font-bold text-slate-600">{entry.name}</span>
+                     </div>
+                   ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-400 opacity-70">
+                <PieChartIcon size={32} className="mb-2" />
+                <p className="text-[10px] font-bold">まだ作業時間の記録がありません</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: AI PLAN */}
+        {activeTab === "AI_PLAN" && (
+          <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-300">
+            <div className="flex justify-between items-center mb-4">
+              <h4 className="text-[10px] font-black text-purple-600 uppercase tracking-widest flex items-center gap-1.5"><Sparkles size={12}/> Focus Plan</h4>
+              <button onClick={handleGeneratePlan} disabled={isGenerating} className="text-[9px] font-black bg-purple-100 text-purple-600 px-3 py-1.5 rounded-full hover:bg-purple-200 transition-colors disabled:opacity-50">
+                {isGenerating ? "生成中..." : aiPlan ? "再生成する" : "プランを作成"}
+              </button>
+            </div>
+            
+            {aiPlan ? (
+              <div className="flex-1 bg-purple-50/50 p-4 rounded-2xl border border-purple-100/50 overflow-y-auto custom-scrollbar text-[11px] font-medium text-slate-700 leading-relaxed whitespace-pre-wrap">
+                {aiPlan}
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-purple-400/70 bg-purple-50/30 rounded-2xl border border-purple-100/50 border-dashed">
+                <Sparkles size={32} className="mb-3" />
+                <p className="text-[10px] font-bold text-center leading-relaxed">右上のボタンを押すと、<br/>AIが今日の最適な戦略を提案します。</p>
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------
+// 🌟 COMPONENT: Activity Feed (Interactive for ALL users)
 // ---------------------------------------------------------
 function ActivityFeed({ feed, currentUserId, router }: any) {
   return (
     <div className="bg-white/30 backdrop-blur-2xl border border-white/60 p-6 rounded-[32px] shadow-lg flex flex-col max-h-[500px]">
       <h4 className="text-[10px] font-black text-slate-900 mb-4 uppercase tracking-widest flex items-center gap-2">
-         <History size={14} className="text-blue-500"/> チーム・アクティビティ
+         <History size={14} className="text-blue-500"/> ライブ・アクティビティ
       </h4>
       <div className="overflow-y-auto space-y-4 pr-2 custom-scrollbar flex-1">
          {feed.map((t: any) => (
@@ -491,13 +647,9 @@ function ActivityFeed({ feed, currentUserId, router }: any) {
   );
 }
 
-// ---------------------------------------------------------
-// COMPONENT: Interactive Feed Item (Extremely Compact & Glassy)
-// ---------------------------------------------------------
 function InteractiveFeedItem({ task, currentUserId, router }: any) {
   const [showCommentBox, setShowCommentBox] = useState(false);
   const [commentText, setCommentText] = useState("");
-  // 🌟 NEW: すべてのコメントを表示するためのトグルState
   const [showAllComments, setShowAllComments] = useState(false);
 
   const handleReaction = async (emoji: string) => {
@@ -511,11 +663,10 @@ function InteractiveFeedItem({ task, currentUserId, router }: any) {
     await addTaskComment(task.id, commentText);
     setCommentText("");
     setShowCommentBox(false);
-    setShowAllComments(true); // コメントしたら全件表示にする
+    setShowAllComments(true);
     router.refresh();
   };
 
-  // 🌟 NEW: リアクションした「ユーザー名」も保持するように変更
   const reactionsMap = task.reactions?.reduce((acc: any, r: any) => {
     if (!acc[r.emoji]) acc[r.emoji] = { count: 0, users: [] };
     acc[r.emoji].count += 1;
@@ -524,88 +675,89 @@ function InteractiveFeedItem({ task, currentUserId, router }: any) {
   }, {}) || {};
 
   return (
-    <div className="relative group bg-white/40 hover:bg-white/60 backdrop-blur-md p-4 rounded-[24px] border border-white/50 shadow-sm transition-all duration-300 flex flex-col">
+    <div className="relative group bg-white/60 backdrop-blur-md p-5 rounded-[28px] border border-white/80 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col">
        
-       <div className="absolute -top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 bg-slate-900/90 backdrop-blur-md p-1 rounded-full shadow-lg z-10 border border-white/20">
-          <button onClick={() => handleReaction('🔥')} className="hover:scale-125 transition-transform text-[10px] px-1.5 py-0.5">🔥</button>
-          <button onClick={() => handleReaction('👍')} className="hover:scale-125 transition-transform text-[10px] px-1.5 py-0.5">👍</button>
-          <button onClick={() => handleReaction('👀')} className="hover:scale-125 transition-transform text-[10px] px-1.5 py-0.5">👀</button>
+       <div className="absolute -top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1.5 bg-slate-900/90 backdrop-blur-md px-2 py-1.5 rounded-2xl shadow-xl z-10 border border-white/20 scale-95 group-hover:scale-100">
+          {['🔥', '👍', '👀'].map(emoji => (
+             <button key={emoji} onClick={() => handleReaction(emoji)} className="hover:scale-125 transition-transform text-xs px-1">
+               {emoji}
+             </button>
+          ))}
           <div className="w-[1px] bg-white/20 mx-1"></div>
-          <button onClick={() => setShowCommentBox(!showCommentBox)} className="text-white/80 hover:text-white px-2 flex items-center justify-center">
-             <MessageSquare size={12}/>
+          <button onClick={() => setShowCommentBox(!showCommentBox)} className="text-white/80 hover:text-white px-1 flex items-center justify-center">
+             <MessageSquare size={14}/>
           </button>
        </div>
 
-       <div className="flex gap-3">
+       <div className="flex items-start gap-4">
           <div className="mt-1 shrink-0">
-             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white shadow-inner ${task.status === 'DONE' ? 'bg-emerald-500' : task.status === 'BLOCKED' ? 'bg-rose-500' : 'bg-blue-500'}`}>
-                {task.status === 'DONE' ? <CheckCircle size={10}/> : task.status === 'BLOCKED' ? <ShieldAlert size={10}/> : <Activity size={10}/>}
+             <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white shadow-inner ${task.status === 'DONE' ? 'bg-emerald-500' : task.status === 'BLOCKED' ? 'bg-rose-500' : 'bg-blue-500'}`}>
+                {task.status === 'DONE' ? <CheckCircle size={14}/> : task.status === 'BLOCKED' ? <ShieldAlert size={14}/> : <Activity size={14}/>}
              </div>
           </div>
+          
           <div className="min-w-0 flex-1">
-             <p className="text-xs font-medium text-slate-800 leading-tight">
-                <span className="font-black text-blue-700">{task.assignee?.name || "未割当"}</span> 
-                <span className="text-slate-500">{task.status === 'DONE' ? ' が完了しました ' : task.status === 'BLOCKED' ? ' がブロックされています ' : ' を更新しました '}</span>
-                <span className="font-bold text-slate-900">"{task.title}"</span>
+              <p className="text-xs font-medium text-slate-600 leading-relaxed">
+                <span className="font-black text-slate-900">{task.assignee?.name || "未割当"}</span> 
+                {task.status === 'DONE' ? ' がタスクを完了しました ' : task.status === 'BLOCKED' ? ' がブロックされています ' : ' がタスクを進行中です '}
              </p>
-             <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-widest truncate">{task.projectName}</p>
+             {/* 🌟 修正: Linkコンポーネントにして hover:underline を追加 */}
+             <Link href="/tasks" className="font-black text-sm text-slate-800 mt-0.5 hover:text-blue-600 hover:underline block w-fit">"{task.title}"</Link>
+             <Link href="/projects" className="text-[9px] font-bold text-blue-500 mt-1.5 uppercase tracking-widest flex items-center gap-1 hover:text-blue-700 hover:underline w-fit">
+               <Folder size={10}/> {task.projectName}
+             </Link>
              
-             {/* 🌟 改善: リアクションにツールチップを追加 */}
              {(Object.keys(reactionsMap).length > 0 || task.comments?.length > 0) && (
-               <div className="flex flex-wrap gap-2 mt-3">
+               <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-slate-200/60">
                   {Object.entries(reactionsMap).map(([emoji, data]: any) => (
                     <div key={emoji} className="relative group/tooltip">
-                      <button onClick={() => handleReaction(emoji)} className="flex items-center gap-1 bg-white/60 border border-white/40 px-2 py-1 rounded-full text-[10px] font-black hover:bg-white transition-colors shadow-sm">
-                         {emoji} <span className="text-slate-600">{data.count}</span>
+                      <button onClick={() => handleReaction(emoji)} className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1 rounded-lg text-[10px] font-black hover:bg-slate-50 transition-colors shadow-sm">
+                         {emoji} <span className="text-slate-500">{data.count}</span>
                       </button>
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover/tooltip:block bg-slate-800 text-white text-[10px] px-2 py-1 rounded-lg shadow-lg whitespace-nowrap z-50 pointer-events-none">
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover/tooltip:block bg-slate-800 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-xl whitespace-nowrap z-50 pointer-events-none">
                         {data.users.join(", ")}
                       </div>
                     </div>
                   ))}
                   {task.comments?.length > 0 && (
-                    <span className="flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-white/40 px-2 py-1 rounded-full border border-white/20">
-                      <MessageSquare size={10}/> {task.comments.length}
-                    </span>
+                    <button onClick={() => setShowAllComments(!showAllComments)} className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded-lg border border-slate-200 transition-colors">
+                      <MessageSquare size={12}/> {task.comments.length} 件のコメント
+                    </button>
                   )}
                </div>
              )}
 
-             {/* 🌟 改善: 全てのコメントの表示と、長い文章の折り返し */}
              {task.comments?.length > 0 && !showCommentBox && (
-                <div className="mt-3 space-y-2">
+                <div className="mt-4 space-y-3">
                   {(showAllComments ? task.comments : task.comments.slice(-1)).map((comment: any) => (
-                    <div key={comment.id} className="bg-white/50 p-3 rounded-2xl border border-white/60 border-l-4 border-l-blue-400 shadow-sm">
-                      <div className="flex justify-between items-start mb-1.5">
-                        <p className="text-[10px] font-black text-slate-800">{comment.user?.name}</p>
-                        <span className="text-[8px] text-slate-400 font-bold">{new Date(comment.createdAt).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                    <div key={comment.id} className="bg-white/80 p-4 rounded-2xl border border-slate-200 shadow-sm relative">
+                      <div className="flex justify-between items-center mb-2">
+                        <p className="text-[10px] font-black text-slate-800 flex items-center gap-1.5">
+                          <span className="w-4 h-4 bg-slate-200 rounded-full flex items-center justify-center text-[8px]">{comment.user?.name?.charAt(0)}</span>
+                          {comment.user?.name}
+                        </p>
+                        <span className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">{new Date(comment.createdAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
-                      {/* whitespace-pre-wrapで改行維持。max-hで長すぎたらスクロール */}
-                      <div className="text-[11px] text-slate-700 leading-relaxed whitespace-pre-wrap break-words max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                      <div className="text-xs font-medium text-slate-700 leading-relaxed whitespace-pre-wrap break-words">
                         {comment.text}
                       </div>
                     </div>
                   ))}
-                  {task.comments.length > 1 && (
-                    <button onClick={() => setShowAllComments(!showAllComments)} className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 mt-1">
-                      {showAllComments ? "コメントを折りたたむ" : `他 ${task.comments.length - 1} 件のコメントを見る`}
-                    </button>
-                  )}
                 </div>
              )}
 
              {showCommentBox && (
-                <form onSubmit={handleComment} className="mt-3 flex gap-2 animate-in fade-in zoom-in-95 duration-200">
+                <form onSubmit={handleComment} className="mt-4 flex gap-2 animate-in fade-in zoom-in-95 duration-200">
                    <input 
                      type="text" 
                      autoFocus
                      value={commentText} 
                      onChange={(e) => setCommentText(e.target.value)} 
-                     placeholder="返信を入力..." 
-                     className="flex-1 bg-white/60 border border-white/80 rounded-xl px-3 py-2 text-[11px] font-bold outline-none focus:ring-2 focus:ring-blue-400 shadow-inner text-slate-800"
+                     placeholder="コメントを入力..." 
+                     className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-400 shadow-inner text-slate-800"
                    />
-                   <button type="submit" className="w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex items-center justify-center transition-colors shadow-sm">
-                      <Send size={14}/>
+                   <button type="submit" className="w-10 h-10 bg-slate-900 hover:bg-slate-800 text-white rounded-xl flex items-center justify-center transition-colors shadow-md">
+                      <Send size={14} className="ml-0.5" />
                    </button>
                 </form>
              )}
@@ -708,3 +860,18 @@ function CalendarHeatmap({ allTasks }: { allTasks: any[] }) {
     </div>
   );
 }
+
+// ---------------------------------------------------------
+// 🌟 NEW: Custom Tooltip for Recharts (チャートのガクガクを完全に防止)
+// ---------------------------------------------------------
+const CustomTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700 text-white p-3 rounded-2xl shadow-xl pointer-events-none">
+        <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-slate-400">{payload[0].name}</p>
+        <p className="text-lg font-black">{Math.floor(payload[0].value / 60)} <span className="text-[10px]">分</span></p>
+      </div>
+    );
+  }
+  return null;
+};

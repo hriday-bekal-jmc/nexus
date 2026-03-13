@@ -215,17 +215,33 @@ export async function getRecentProjects() {
 }
 
 // ==========================================
-// 👇 Comments and reactions
+// 👇 Comments and reactions (🔔 通知機能を追加して上書き)
 // ==========================================
 
 export async function addTaskComment(taskId: string, text: string) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) return { error: "Unauthorized" };
+    const userId = (session.user as any).id;
+    const userName = session.user?.name || "メンバー";
+
+    const task = await prisma.task.findUnique({ where: { id: taskId } });
 
     await prisma.taskComment.create({
-      data: { text, taskId, userId: (session.user as any).id }
+      data: { text, taskId, userId }
     });
+
+    // 🔔 タスクの担当者が自分以外なら通知を送る
+    if (task && task.assigneeId && task.assigneeId !== userId) {
+      await createNotification(
+        task.assigneeId, 
+        "COMMENT", 
+        "💬 タスクにコメントがありました", 
+        `${userName}さんが「${task.title}」にコメントしました: ${text}`, 
+        "/tasks"
+      );
+    }
+
     revalidatePath("/");
     return { success: true };
   } catch (error) {
@@ -238,21 +254,85 @@ export async function toggleTaskReaction(taskId: string, emoji: string) {
     const session = await getServerSession(authOptions);
     if (!session) return { error: "Unauthorized" };
     const userId = (session.user as any).id;
+    const userName = session.user?.name || "メンバー";
 
     const existing = await prisma.taskReaction.findUnique({
       where: { taskId_userId_emoji: { taskId, userId, emoji } }
     });
 
+    const task = await prisma.task.findUnique({ where: { id: taskId } });
+
     if (existing) {
-      await prisma.taskReaction.delete({ where: { id: existing.id } }); // すでにあれば外す
+      await prisma.taskReaction.delete({ where: { id: existing.id } }); 
     } else {
-      await prisma.taskReaction.create({ data: { taskId, userId, emoji } }); // なければ付ける
+      await prisma.taskReaction.create({ data: { taskId, userId, emoji } }); 
+      // 🔔 リアクションがついたら通知
+      if (task && task.assigneeId && task.assigneeId !== userId) {
+        await createNotification(task.assigneeId, "REACTION", "👍 リアクション", `${userName}さんが「${task.title}」に ${emoji} をリアクションしました`, "/tasks");
+      }
     }
     
     revalidatePath("/");
     return { success: true };
   } catch (error) {
     return { error: "Failed to toggle reaction" };
+  }
+}
+
+export async function toggleCommentReaction(commentId: string, emoji: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return { error: "Unauthorized" };
+    const userId = (session.user as any).id;
+    const userName = session.user?.name || "メンバー";
+
+    const existing = await prisma.taskCommentReaction.findUnique({
+      where: { commentId_userId_emoji: { commentId, userId, emoji } }
+    });
+
+    const comment = await prisma.taskComment.findUnique({ where: { id: commentId }, include: { task: true } });
+
+    if (existing) {
+      await prisma.taskCommentReaction.delete({ where: { id: existing.id } });
+    } else {
+      await prisma.taskCommentReaction.create({ data: { commentId, userId, emoji } });
+      // 🔔 コメント主に通知
+      if (comment && comment.userId !== userId) {
+        await createNotification(comment.userId, "REACTION", "👍 コメントへの反応", `${userName}さんがあなたのコメントに ${emoji} をリアクションしました`, "/tasks");
+      }
+    }
+    
+    revalidatePath("/tasks");
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    return { error: "リアクションの更新に失敗しました" };
+  }
+}
+
+// 🤖 22. GENERATE PERSONAL FOCUS PLAN (AIによるパーソナルプラン作成)
+export async function generatePersonalFocusPlan(tasksData: string) {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return "APIキーが設定されていません。";
+
+    const { GoogleGenerativeAI } = await import("@google/generative-ai");
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const prompt = `
+      あなたは優秀なパーソナルアシスタントです。以下のユーザーの担当タスク一覧をもとに、
+      「今日フォーカスすべきこと」と「簡単なモチベーションメッセージ」を組み合わせて、
+      3〜4行の短いマークダウンテキスト（リスト形式など）でアドバイスを作成してください。
+      
+      タスクデータ: ${tasksData}
+    `;
+
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  } catch (error) {
+    console.error("AI Plan Error:", error);
+    return "AIプランの生成に失敗しました。";
   }
 }
 
@@ -388,20 +468,28 @@ export async function generateDashboardInsights(tasksData: string) {
       }
     });
 
-    const prompt = `
-      あなたは有能なプロジェクトマネージャーです。以下のチームのタスク状況データ（JSON）を分析し、
-      マネージャー向けに3〜4件の簡潔なインサイト（要約）を生成してください。
-      必ず以下のJSON配列形式で出力してください。
+const prompt = `
+      あなたは優秀で鋭いプロジェクトマネージャーです。
+      提供されるJSONデータには「現在の日付(currentDate)」と「チームの未完了タスク一覧(activeTasks)」が含まれています。
+      これを分析し、マネージャー向けに各メンバーの状況を要約したインサイトを生成してください。
+
+      【分析の重要ポイント】
+      1. 期限超過: currentDate と dueDate を比較し、期限を過ぎているタスクがあれば厳しく警告してください。
+      2. 業務負荷: タスクの件数や優先度（HIGH）から、メンバーの業務負荷（多すぎるか等）を推測してください。
+      3. ブロック状態: statusが「BLOCKED」のタスクがあれば、早急なフォローを促してください。
+      4. 事実のみを語る: 提供されたデータのみに基づいて分析し、嘘や適当なポジティブ発言はしないでください。
+
+      出力は必ず以下のJSON配列形式にしてください。メンバーごとに1つのオブジェクトにまとめ、チーム全体で最大5件程度出力してください。
 
       [
         {
-          "user": "担当者名（例: Yashwan）",
-          "summary": "状況の簡潔な要約（例: データベース設計を完了。現在デプロイでブロック中。）",
-          "status": "ブロック", "順調", "優秀", "調査中" のいずれかを選択
+          "user": "担当者名",
+          "summary": "分析に基づいた具体的な状況要約（例: 「優先度高のタスクを3件抱えており高負荷です」「〇〇の期限が昨日で超過しています。フォローが必要です。」）",
+          "status": "ブロック", "遅延", "順調", "要確認" のいずれか
         }
       ]
 
-      タスクデータ: ${tasksData}
+      提供データ: ${tasksData}
     `;
 
     const result = await model.generateContent(prompt);
@@ -569,30 +657,30 @@ export async function deleteTaskComment(commentId: string) {
   }
 }
 
-// 👍 13. TOGGLE COMMENT REACTION (個別のコメントへのリアクション)
-export async function toggleCommentReaction(commentId: string, emoji: string) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session) return { error: "Unauthorized" };
-    const userId = (session.user as any).id;
+// // 👍 13. TOGGLE COMMENT REACTION (個別のコメントへのリアクション)
+// export async function toggleCommentReaction(commentId: string, emoji: string) {
+//   try {
+//     const session = await getServerSession(authOptions);
+//     if (!session) return { error: "Unauthorized" };
+//     const userId = (session.user as any).id;
 
-    const existing = await prisma.taskCommentReaction.findUnique({
-      where: { commentId_userId_emoji: { commentId, userId, emoji } }
-    });
+//     const existing = await prisma.taskCommentReaction.findUnique({
+//       where: { commentId_userId_emoji: { commentId, userId, emoji } }
+//     });
 
-    if (existing) {
-      await prisma.taskCommentReaction.delete({ where: { id: existing.id } });
-    } else {
-      await prisma.taskCommentReaction.create({ data: { commentId, userId, emoji } });
-    }
+//     if (existing) {
+//       await prisma.taskCommentReaction.delete({ where: { id: existing.id } });
+//     } else {
+//       await prisma.taskCommentReaction.create({ data: { commentId, userId, emoji } });
+//     }
     
-    revalidatePath("/tasks");
-    revalidatePath("/");
-    return { success: true };
-  } catch (error) {
-    return { error: "リアクションの更新に失敗しました" };
-  }
-}
+//     revalidatePath("/tasks");
+//     revalidatePath("/");
+//     return { success: true };
+//   } catch (error) {
+//     return { error: "リアクションの更新に失敗しました" };
+//   }
+// }
 
 // 📝 14. GENERATE DAILY REPORT DRAFT (賢いAIによる日報自動生成)
 export async function generateDailyReportDraft() {
@@ -716,17 +804,23 @@ export async function updateReportStatus(reportId: string, status: "APPROVED" | 
     const session = await getServerSession(authOptions);
     if (!session) return { error: "Unauthorized" };
     
-    // マネージャー権限の確認
     const userRole = (session.user as any).role;
-    if (userRole !== "MANAGER") {
-      return { error: "この操作はマネージャーのみ可能です" };
-    }
+    if (userRole !== "MANAGER") return { error: "この操作はマネージャーのみ可能です" };
 
-    await prisma.report.update({
+    const report = await prisma.report.update({
       where: { id: reportId },
-      data: { status }
+      data: { status },
+      include: { user: true } // 提出者の情報を取得
     });
     
+    // 🔔 通知を発行！
+    const title = status === "APPROVED" ? "✅ 日報が承認されました" : "🚨 日報に修正依頼があります";
+    const message = status === "APPROVED" 
+      ? "お疲れ様です！今日の日報がマネージャーによって承認されました。" 
+      : "マネージャーから日報の差し戻しがありました。確認して再提出してください。";
+      
+    await createNotification(report.userId, "REPORT_STATUS", title, message, "/nippo");
+
     revalidatePath("/nippo");
     return { success: true };
   } catch (error) {
@@ -761,5 +855,153 @@ export async function editDailyReport(reportId: string, achievedTasks: string, t
     return { success: true };
   } catch (error) {
     return { error: "日報の更新に失敗しました" };
+  }
+}
+
+// ==========================================
+// 🔔 通知システム (Notifications)
+// ==========================================
+
+// 🔔 19. FETCH NOTIFICATIONS (通知一覧の取得)
+export async function getNotifications() {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return [];
+    const userId = (session.user as any).id;
+
+    return await prisma.notification.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 20 // 最新20件を取得
+    });
+  } catch (error) {
+    console.error("Fetch Notifications Error:", error);
+    return [];
+  }
+}
+
+// 🔔 20. MARK NOTIFICATION AS READ (通知を既読にする)
+export async function markNotificationAsRead(id: string) {
+  try {
+    await prisma.notification.update({
+      where: { id },
+      data: { isRead: true }
+    });
+    return { success: true };
+  } catch (error) {
+    return { error: "Failed to mark as read" };
+  }
+}
+
+// 🔔 21. CREATE NOTIFICATION (システム内部から通知を発行する用)
+export async function createNotification(userId: string, type: string, title: string, message: string, link?: string) {
+  try {
+    await prisma.notification.create({
+      data: { userId, type, title, message, link }
+    });
+  } catch(e) {
+    console.error("Create Notification Error:", e);
+  }
+}
+
+
+// 🌟 23. AUTO COMPLETE TASK (サブタスク全完了時にタスクをDONEにする)
+// 残しておく正しいコード
+export async function autoCompleteTask(taskId: string) {
+  try {
+    const task = await prisma.task.update({
+      where: { id: taskId },
+      data: { status: "DONE" }
+    });
+    
+    // プロジェクトが完了したかチェック
+    const completedProjectName = task.projectId ? await checkProjectCompletion(task.projectId) : null;
+
+    revalidatePath("/");
+    revalidatePath("/tasks");
+    return { success: true, projectCompleted: !!completedProjectName, projectName: completedProjectName };
+  } catch (error) {
+    return { error: "自動完了に失敗しました" };
+  }
+}
+
+// ==========================================
+// 🏆 プロジェクト達成 ＆ 承認システム
+// ==========================================
+
+// 🌟 プロジェクトが完了したかチェックし、完了ならステータスを変えて通知を送る関数
+export async function checkProjectCompletion(projectId: string) {
+  try {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { tasks: true, members: true }
+    });
+    if (!project || project.status !== "ACTIVE") return null;
+
+    const allTasks = project.tasks;
+    // 全てのタスクがDONEになっているかチェック
+    const allDone = allTasks.length > 0 && allTasks.every(t => t.status === "DONE");
+
+    if (allDone) {
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { status: "PENDING_APPROVAL" } // 承認待ちに変更
+      });
+
+      // ① チームメンバー全員にド派手な通知を送る！
+      for (const member of project.members) {
+        await createNotification(
+          member.id, "PROJECT_COMPLETED", "🏆 プロジェクト達成！",
+          `おめでとうございます！「${project.name}」の全タスクが完了し、マネージャーの承認待ちになりました。`, "/"
+        );
+      }
+
+      // ② 🌟 NEW: マネージャー全員にも「承認依頼」の通知を送る！
+      const managers = await prisma.user.findMany({ where: { role: "MANAGER" } });
+      for (const manager of managers) {
+        // 重複して通知がいかないようにする
+        if (!project.members.find(m => m.id === manager.id)) {
+          await createNotification(
+            manager.id, "PROJECT_COMPLETED", "🔔 プロジェクト承認待ち",
+            `「${project.name}」の全タスクが完了しました。ダッシュボードから確認し、アーカイブしてください。`, "/"
+          );
+        }
+      }
+
+      return project.name;
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// 🌟 マネージャーがプロジェクトを承認してアーカイブする関数
+export async function approveAndArchiveProject(projectId: string) {
+  try {
+    await prisma.project.update({
+      where: { id: projectId },
+      data: { status: "ARCHIVED" }
+    });
+    revalidatePath("/");
+    revalidatePath("/projects");
+    return { success: true };
+  } catch (error) {
+    return { error: "承認に失敗しました" };
+  }
+}
+
+// 🌟 プロジェクトをアーカイブから復元（ACTIVEに戻す）関数
+export async function unarchiveProject(projectId: string) {
+  try {
+    await prisma.project.update({
+      where: { id: projectId },
+      data: { status: "ACTIVE" }
+    });
+    revalidatePath("/");
+    revalidatePath("/projects");
+    return { success: true };
+  } catch (error) {
+    return { error: "プロジェクトの復元に失敗しました" };
   }
 }

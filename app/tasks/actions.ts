@@ -2,18 +2,25 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { checkProjectCompletion } from "@/lib/actions";
 
-export async function updateTaskStatusDrag(taskId: string, newStatus: string) {
+export async function updateTaskStatusDrag(taskId: string, status: string) {
   try {
-    await prisma.task.update({
+    const task = await prisma.task.update({
       where: { id: taskId },
-      data: { status: newStatus }
+      data: { status }
     });
+
+    let projectCompletedName = null;
+    // もしタスクが「完了」になり、プロジェクトに属しているなら、プロジェクト全体が完了したかチェック
+    if (status === "DONE" && task.projectId) {
+      projectCompletedName = await checkProjectCompletion(task.projectId);
+    }
 
     revalidatePath("/tasks");
     revalidatePath("/");
-    return { success: true };
+    return { success: true, projectCompleted: !!projectCompletedName, projectName: projectCompletedName };
   } catch (error) {
-    return { error: "タスクの更新に失敗しました。" };
+    return { error: "Failed to update task status" };
   }
 }

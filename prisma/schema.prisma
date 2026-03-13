@@ -29,6 +29,8 @@ model User {
   projects             Project[]             @relation("ProjectMembers")
   updatedAt            DateTime              @default(now()) @updatedAt
   taskCommentReactions TaskCommentReaction[]
+
+  notifications Notification[]
 }
 
 model Account {
@@ -61,6 +63,7 @@ model Project {
   id          String   @id @default(cuid())
   name        String
   description String?
+  status      String   @default("ACTIVE")
   drive_url   String?
   managerId   String
   createdAt   DateTime @default(now())
@@ -144,4 +147,16 @@ model TaskReaction {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, userId, emoji])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String // 例: "TASK_ASSIGNED", "REPORT_REVISION", "COMMENT_ADDED"
+  title     String
+  message   String
+  link      String? // 通知をクリックした時の遷移先URL
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
